@@ -34,7 +34,7 @@ class MessageTool(Tool):
     
     @property
     def description(self) -> str:
-        return "Send a message to the user. Use this when you want to communicate something."
+        return "Send a message to the user. You can send text messages and optionally attach files (images, documents, etc.) by providing file paths in the media parameter. Use this when you want to communicate something or share files you've created or processed."
     
     @property
     def parameters(self) -> dict[str, Any]:
@@ -44,6 +44,13 @@ class MessageTool(Tool):
                 "content": {
                     "type": "string",
                     "description": "The message content to send"
+                },
+                "media": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional: list of local file paths to attach (images, documents, etc.). Files will be sent along with the message."
                 },
                 "channel": {
                     "type": "string",
@@ -60,6 +67,7 @@ class MessageTool(Tool):
     async def execute(
         self, 
         content: str, 
+        media: list[str] | None = None,
         channel: str | None = None, 
         chat_id: str | None = None,
         **kwargs: Any
@@ -76,7 +84,8 @@ class MessageTool(Tool):
         msg = OutboundMessage(
             channel=channel,
             chat_id=chat_id,
-            content=content
+            content=content,
+            media=media or []
         )
         
         try:

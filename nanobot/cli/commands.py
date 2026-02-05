@@ -154,7 +154,7 @@ This file stores important information that should persist across sessions.
 
 @app.command()
 def gateway(
-    port: int = typer.Option(18790, "--port", "-p", help="Gateway port"),
+    port: int = typer.Option(8000, "--port", "-p", help="Gateway port"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Start the nanobot gateway."""
@@ -202,6 +202,8 @@ def gateway(
         workspace=config.workspace_path,
         model=config.agents.defaults.model,
         max_iterations=config.agents.defaults.max_tool_iterations,
+        max_tokens=config.agents.defaults.max_tokens,
+        temperature=config.agents.defaults.temperature,
         brave_api_key=config.tools.web.search.api_key or None
     )
     
@@ -376,6 +378,20 @@ def channels_status():
         "✓" if tg.enabled else "✗",
         tg_config
     )
+
+    # Feishu
+    feishu = getattr(config.channels, "feishu", None)
+    if feishu is not None:
+        feishu_conf = (
+            "tenant_access_token: ****"
+            if feishu.tenant_access_token
+            else "[dim]not configured[/dim]"
+        )
+        table.add_row(
+            "Feishu",
+            "✓" if feishu.enabled else "✗",
+            feishu_conf,
+        )
 
     console.print(table)
 

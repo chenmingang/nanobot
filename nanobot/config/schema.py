@@ -23,6 +23,22 @@ class ChannelsConfig(BaseModel):
     """Configuration for chat channels."""
     whatsapp: WhatsAppConfig = Field(default_factory=WhatsAppConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
+    # Feishu configuration (optional, outbound-only by default)
+    # To fully support inbound events, you can add an HTTP endpoint or bridge
+    # that calls the FeishuChannel._handle_message(...) helper.
+    class FeishuConfig(BaseModel):
+        """Feishu channel configuration."""
+
+        enabled: bool = False
+        # Option 1: direct tenant access token (if you manage it yourself)
+        tenant_access_token: str = ""
+        # Option 2: app credentials; if set and no tenant_access_token is
+        # provided, FeishuChannel will automatically fetch one on startup.
+        app_id: str = ""
+        app_secret: str = ""
+        allow_from: list[str] = Field(default_factory=list)
+
+    feishu: FeishuConfig = Field(default_factory=FeishuConfig)
 
 
 class AgentDefaults(BaseModel):
@@ -59,7 +75,7 @@ class ProvidersConfig(BaseModel):
 class GatewayConfig(BaseModel):
     """Gateway/server configuration."""
     host: str = "0.0.0.0"
-    port: int = 18790
+    port: int = 8000
 
 
 class WebSearchConfig(BaseModel):

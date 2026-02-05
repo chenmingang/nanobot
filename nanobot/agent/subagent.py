@@ -119,6 +119,8 @@ class SubagentManager:
                     messages=messages,
                     tools=tools.get_definitions(),
                     model=self.model,
+                    max_tokens=8000,  # Subagents use smaller limit
+                    temperature=0.7,
                 )
                 
                 if response.has_tool_calls:
