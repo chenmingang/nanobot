@@ -62,6 +62,9 @@ class AgentLoop:
             bus=bus,
             model=self.model,
             brave_api_key=brave_api_key,
+            # Keep subagent usage cheaper than the main agent by default.
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
         )
         
         self._running = False
