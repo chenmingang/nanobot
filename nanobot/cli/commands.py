@@ -204,6 +204,7 @@ def gateway(
         max_iterations=config.agents.defaults.max_tool_iterations,
         max_tokens=config.agents.defaults.max_tokens,
         temperature=config.agents.defaults.temperature,
+        max_history_messages=config.agents.defaults.max_history_messages,
         brave_api_key=config.tools.web.search.api_key or None
     )
     
@@ -311,6 +312,7 @@ def agent(
         bus=bus,
         provider=provider,
         workspace=config.workspace_path,
+        max_history_messages=config.agents.defaults.max_history_messages,
         brave_api_key=config.tools.web.search.api_key or None
     )
     

@@ -43,6 +43,7 @@ class AgentLoop:
         max_iterations: int = 20,
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        max_history_messages: int = 50,
         brave_api_key: str | None = None
     ):
         self.bus = bus
@@ -52,6 +53,7 @@ class AgentLoop:
         self.max_iterations = max_iterations
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.max_history_messages = max_history_messages
         self.brave_api_key = brave_api_key
         
         self.context = ContextBuilder(workspace)
@@ -163,7 +165,7 @@ class AgentLoop:
         
         # Build initial messages (use get_history for LLM-formatted messages)
         messages = self.context.build_messages(
-            history=session.get_history(),
+            history=session.get_history(max_messages=self.max_history_messages),
             current_message=msg.content,
             media=msg.media if msg.media else None,
         )
@@ -263,7 +265,7 @@ class AgentLoop:
         
         # Build messages with the announce content
         messages = self.context.build_messages(
-            history=session.get_history(),
+            history=session.get_history(max_messages=self.max_history_messages),
             current_message=msg.content
         )
         

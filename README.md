@@ -105,7 +105,8 @@ nanobot onboard
   },
   "agents": {
     "defaults": {
-      "model": "anthropic/claude-opus-4-5"
+      "model": "anthropic/claude-opus-4-5",
+      "max_history_messages": 50
     }
   },
   "webSearch": {
@@ -264,7 +265,8 @@ Config file: `~/.nanobot/config.json`
 {
   "agents": {
     "defaults": {
-      "model": "anthropic/claude-opus-4-5"
+      "model": "anthropic/claude-opus-4-5",
+      "max_history_messages": 50
     }
   },
   "providers": {
