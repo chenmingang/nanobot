@@ -37,6 +37,11 @@ def get_sessions_path() -> Path:
     return ensure_dir(get_data_path() / "sessions")
 
 
+def get_media_path() -> Path:
+    """Get the media storage directory (for channel attachments)."""
+    return ensure_dir(get_data_path() / "media")
+
+
 def get_memory_path(workspace: Path | None = None) -> Path:
     """Get the memory directory within the workspace."""
     ws = workspace or get_workspace_path()

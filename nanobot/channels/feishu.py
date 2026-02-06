@@ -3,8 +3,8 @@
 This channel handles:
   - Outbound messaging to Feishu chats using the HTTP OpenAPI (text, file, image).
   - Inbound Feishu events via Feishu Python SDK WebSocket client
-    (im.message.receive_v1): text, file, and image messages are forwarded into
-    the nanobot bus; files and images are downloaded to ~/.nanobot/media.
+    (    im.message.receive_v1): text, file, and image messages are forwarded into
+    the nanobot bus; files and images are downloaded to nanobot's media dir.
 
 The WebSocket client is implemented using the official `lark-oapi` SDK:
 https://open.feishu.cn/document/server-side-sdk/python--sdk/handle-events
@@ -25,12 +25,10 @@ from loguru import logger
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
+from nanobot.utils.helpers import get_media_path
 
 if TYPE_CHECKING:  # only for type checkers; avoids runtime import issues
     from nanobot.config.schema import ChannelsConfig
-
-# Media files (received or to send) are stored under ~/.nanobot/media
-MEDIA_DIR = Path.home() / ".nanobot" / "media"
 
 def _shorten(text: str, limit: int = 500) -> str:
     text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
@@ -120,10 +118,10 @@ class FeishuChannel(BaseChannel):
             return False
 
     async def _download_feishu_file(self, file_key: str) -> str | None:
-        """Download file from Feishu by file_key; save to MEDIA_DIR. Returns local path or None."""
+        """Download file from Feishu by file_key; save to nanobot media dir. Returns local path or None."""
         if not self._client or not self._tenant_access_token:
             return None
-        MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+        media_dir = get_media_path()
         url = f"https://open.feishu.cn/open-apis/im/v1/files/{file_key}"
         headers = {"Authorization": f"Bearer {self._tenant_access_token}"}
         try:
@@ -138,7 +136,7 @@ class FeishuChannel(BaseChannel):
                 m = re.search(r"filename\*?=(?:UTF-8'')?([^;\s]+)", cd)
                 if m:
                     ext = Path(m.group(1).strip('"')).suffix
-            local_path = MEDIA_DIR / _safe_file_key(file_key, ext or ".bin")
+            local_path = media_dir / _safe_file_key(file_key, ext or ".bin")
             local_path.write_bytes(resp.content)
             logger.info("Feishu file downloaded: file_key={} -> {}", file_key[:32], local_path)
             return str(local_path)
@@ -147,10 +145,10 @@ class FeishuChannel(BaseChannel):
             return None
 
     async def _download_feishu_image(self, image_key: str) -> str | None:
-        """Download image from Feishu by image_key; save to MEDIA_DIR. Returns local path or None."""
+        """Download image from Feishu by image_key; save to nanobot media dir. Returns local path or None."""
         if not self._client or not self._tenant_access_token:
             return None
-        MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+        media_dir = get_media_path()
         url = f"https://open.feishu.cn/open-apis/im/v1/images/{image_key}"
         headers = {"Authorization": f"Bearer {self._tenant_access_token}"}
         try:
@@ -166,7 +164,7 @@ class FeishuChannel(BaseChannel):
                 ext = ".gif"
             elif "webp" in ct:
                 ext = ".webp"
-            local_path = MEDIA_DIR / _safe_file_key(image_key, ext)
+            local_path = media_dir / _safe_file_key(image_key, ext)
             local_path.write_bytes(resp.content)
             logger.info("Feishu image downloaded: image_key={} -> {}", image_key[:32], local_path)
             return str(local_path)
