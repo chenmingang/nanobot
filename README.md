@@ -252,6 +252,7 @@ Config file: `~/.nanobot/config.json`
 | `openrouter` | LLM (recommended, access to all models) | [openrouter.ai](https://openrouter.ai) |
 | `anthropic` | LLM (Claude direct) | [console.anthropic.com](https://console.anthropic.com) |
 | `openai` | LLM (GPT direct) | [platform.openai.com](https://platform.openai.com) |
+| `siliconflow` | LLM (硅基流动, Qwen/DeepSeek 等) | [cloud.siliconflow.cn](https://cloud.siliconflow.cn) |
 | `groq` | LLM + **Voice transcription** (Whisper) | [console.groq.com](https://console.groq.com) |
 | `gemini` | LLM (Gemini direct) | [aistudio.google.com](https://aistudio.google.com) |
 

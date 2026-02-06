@@ -32,8 +32,13 @@ class LiteLLMProvider(LLMProvider):
             (api_base and "openrouter" in api_base)
         )
         
+        # Silicon Flow (硅基流动) - OpenAI-compatible, api.siliconflow.cn
+        self.is_siliconflow = bool(api_base) and "siliconflow" in api_base
+        
         # Track if using custom endpoint (vLLM, etc.)
-        self.is_vllm = bool(api_base) and not self.is_openrouter
+        self.is_vllm = (
+            bool(api_base) and not self.is_openrouter and not self.is_siliconflow
+        )
         
         # Configure LiteLLM based on provider
         if api_key:
@@ -53,6 +58,8 @@ class LiteLLMProvider(LLMProvider):
                 os.environ.setdefault("ZHIPUAI_API_KEY", api_key)
             elif "groq" in default_model:
                 os.environ.setdefault("GROQ_API_KEY", api_key)
+            elif self.is_siliconflow:
+                os.environ["OPENAI_API_KEY"] = api_key
         
         if api_base:
             litellm.api_base = api_base
@@ -100,6 +107,10 @@ class LiteLLMProvider(LLMProvider):
         # Convert openai/ prefix to hosted_vllm/ if user specified it
         if self.is_vllm:
             model = f"hosted_vllm/{model}"
+        
+        # Silicon Flow: OpenAI-compatible API, must use openai/ prefix so LiteLLM picks the provider
+        if self.is_siliconflow and not model.startswith("openai/"):
+            model = f"openai/{model}"
         
         # For Gemini, ensure gemini/ prefix if not already present
         if "gemini" in model.lower() and not model.startswith("gemini/"):
