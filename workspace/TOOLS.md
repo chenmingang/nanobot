@@ -34,10 +34,34 @@ Save information to long-term memory (MEMORY.md). Use when the user asks to reme
 remember(content: str) -> str
 ```
 
+### remember_core
+Save core information to MEMORY.md (user-requested, identity, preferences). Keep MEMORY.md concise.
+```
+remember_core(content: str) -> str
+```
+
+### append_daily
+Append notes to today's memory file (memory/YYYY-MM-DD.md). Use for session summaries, TODO items.
+```
+append_daily(content: str) -> str
+```
+
 ### organize_memory
-Organize MEMORY.md: categorize entries into sections (用户信息, 偏好设置, 项目上下文, 重要笔记, 其他), deduplicate, and rewrite for better model context. Use when the user asks to organize/tidy memory.
+Organize MEMORY.md: keep only core content; move non-core entries to dated daily files.
 ```
 organize_memory() -> str
+```
+
+### memory_search
+Semantically search memory files (MEMORY.md, memory/*.md). Use to recall related information.
+```
+memory_search(query: str, top_k: int = 5) -> str
+```
+
+### memory_get
+Read a memory file by workspace-relative path (e.g. memory/MEMORY.md, memory/2026-02-06.md).
+```
+memory_get(path: str, start_line: int = None, lines: int = None) -> str
 ```
 
 ## Shell Execution

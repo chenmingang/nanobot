@@ -41,6 +41,16 @@ class ChannelsConfig(BaseModel):
     feishu: FeishuConfig = Field(default_factory=FeishuConfig)
 
 
+class MemoryFlushConfig(BaseModel):
+    """Pre-compaction memory flush (store durable memories before compaction)."""
+
+    enabled: bool = True
+    trigger_messages_before: int = Field(
+        default=0,
+        description="Trigger flush N messages before compaction (0 = same as compaction)",
+    )
+
+
 class CompactionConfig(BaseModel):
     """Short-term memory compression config (summarize older conversation)."""
 
@@ -52,6 +62,20 @@ class CompactionConfig(BaseModel):
     keep_recent: int = Field(
         default=20,
         description="Keep this many recent messages after compaction",
+    )
+    memory_flush: MemoryFlushConfig = Field(
+        default_factory=MemoryFlushConfig,
+        description="Pre-compaction memory flush",
+    )
+
+
+class MemorySearchConfig(BaseModel):
+    """Vector memory search config (semantic search over MEMORY.md and memory/*.md)."""
+
+    enabled: bool = True
+    store_path: str = Field(
+        default="~/.nanobot/memory/search",
+        description="ChromaDB persistence path",
     )
 
 
@@ -69,6 +93,10 @@ class AgentDefaults(BaseModel):
     compaction: CompactionConfig = Field(
         default_factory=CompactionConfig,
         description="Short-term memory compression (summarize older conversation)",
+    )
+    memory_search: MemorySearchConfig = Field(
+        default_factory=MemorySearchConfig,
+        description="Vector memory search (semantic search)",
     )
 
 

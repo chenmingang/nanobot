@@ -20,10 +20,14 @@ You have access to:
 
 ## Memory
 
-- Use `remember` tool when the user asks to remember something (e.g. 记住、remember、帮我记一下)
-- Use `organize_memory` tool when the user asks to organize/tidy memory (e.g. 整理记忆、整理 MEMORY)
-- Use `memory/` directory for daily notes
-- Use `MEMORY.md` for long-term information (via `remember` tool)
+**Layered memory:**
+- `MEMORY.md` — core only (user-requested, identity, preferences). Use `remember_core` or `remember`.
+- `memory/YYYY-MM-DD.md` — daily notes, session summaries. Use `append_daily`.
+
+- Use `remember` or `remember_core` when the user asks to remember something (e.g. 记住、remember、帮我记一下). Prefer `remember_core` for core facts; use `append_daily` for session notes.
+- Use `organize_memory` when the user asks to organize/tidy memory (e.g. 整理记忆、整理 MEMORY). It keeps MEMORY.md concise and moves non-core content to daily files.
+- Use `memory_search` to semantically search memory when you need to recall related information.
+- Use `memory_get` to read a specific memory file by path (e.g. memory/MEMORY.md).
 
 ## Scheduled Reminders
 

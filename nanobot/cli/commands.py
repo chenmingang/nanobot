@@ -208,9 +208,12 @@ def gateway(
         compaction_enabled=config.agents.defaults.compaction.enabled,
         compaction_threshold=config.agents.defaults.compaction.threshold_messages,
         compaction_keep_recent=config.agents.defaults.compaction.keep_recent,
+        compaction_memory_flush_enabled=config.agents.defaults.compaction.memory_flush.enabled,
+        api_key=config.get_api_key(),
+        api_base=config.get_api_base(),
         brave_api_key=config.tools.web.search.api_key or None
     )
-    
+
     # Create cron service
     async def on_cron_job(job: CronJob) -> str | None:
         """Execute a cron job through the agent."""
@@ -319,9 +322,12 @@ def agent(
         compaction_enabled=config.agents.defaults.compaction.enabled,
         compaction_threshold=config.agents.defaults.compaction.threshold_messages,
         compaction_keep_recent=config.agents.defaults.compaction.keep_recent,
+        compaction_memory_flush_enabled=config.agents.defaults.compaction.memory_flush.enabled,
+        api_key=api_key,
+        api_base=api_base,
         brave_api_key=config.tools.web.search.api_key or None
     )
-    
+
     if message:
         # Single message mode
         async def run_once():

@@ -11,11 +11,23 @@ from loguru import logger
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
-from nanobot.agent.compaction import summarize_messages
+from nanobot.agent.compaction import (
+    MEMORY_FLUSH_PROMPT,
+    MEMORY_FLUSH_SYSTEM,
+    NO_REPLY_TOKEN,
+    summarize_messages,
+)
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
-from nanobot.agent.tools.memory_tools import OrganizeMemoryTool, RememberTool
+from nanobot.agent.tools.memory_tools import (
+    AppendDailyTool,
+    MemoryGetTool,
+    MemorySearchTool,
+    OrganizeMemoryTool,
+    RememberCoreTool,
+    RememberTool,
+)
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
 from nanobot.agent.tools.message import MessageTool
@@ -52,6 +64,9 @@ class AgentLoop:
         compaction_enabled: bool = True,
         compaction_threshold: int = 60,
         compaction_keep_recent: int = 20,
+        compaction_memory_flush_enabled: bool = True,
+        api_key: str | None = None,
+        api_base: str | None = None,
         brave_api_key: str | None = None
     ):
         self.bus = bus
@@ -65,6 +80,9 @@ class AgentLoop:
         self.compaction_enabled = compaction_enabled
         self.compaction_threshold = compaction_threshold
         self.compaction_keep_recent = compaction_keep_recent
+        self.compaction_memory_flush_enabled = compaction_memory_flush_enabled
+        self.api_key = api_key
+        self.api_base = api_base
         self.brave_api_key = brave_api_key
         
         self.context = ContextBuilder(workspace)
@@ -94,8 +112,12 @@ class AgentLoop:
 
         # Memory tools
         self.tools.register(RememberTool(self.workspace))
+        self.tools.register(RememberCoreTool(self.workspace))
+        self.tools.register(AppendDailyTool(self.workspace))
         self.tools.register(OrganizeMemoryTool(self.workspace))
-        
+        self.tools.register(MemorySearchTool(self.workspace, api_key=self.api_key, api_base=self.api_base))
+        self.tools.register(MemoryGetTool(self.workspace))
+
         # Shell tool
         self.tools.register(ExecTool(working_dir=str(self.workspace)))
         
@@ -111,10 +133,61 @@ class AgentLoop:
         spawn_tool = SpawnTool(manager=self.subagents)
         self.tools.register(spawn_tool)
 
+    async def _run_memory_flush_turn(self, session: "Session") -> None:
+        """
+        Pre-compaction memory flush: run a silent agent turn to store durable
+        memories (remember_core, append_daily) before compaction.
+        """
+        history = session.get_history(max_messages=self.max_history_messages)
+        messages = [
+            {"role": "system", "content": MEMORY_FLUSH_SYSTEM},
+            *[{"role": m["role"], "content": m["content"]} for m in history],
+            {"role": "user", "content": MEMORY_FLUSH_PROMPT},
+        ]
+
+        max_flush_iterations = 5
+        for _ in range(max_flush_iterations):
+            response = await self.provider.chat(
+                messages=messages,
+                tools=self.tools.get_definitions(),
+                model=self.model,
+                max_tokens=self.max_tokens,
+                temperature=0.3,
+            )
+
+            if response.has_tool_calls:
+                tool_call_dicts = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
+                    }
+                    for tc in response.tool_calls
+                ]
+                messages = self.context.add_assistant_message(
+                    messages, response.content, tool_call_dicts
+                )
+                for tool_call in response.tool_calls:
+                    result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                    messages = self.context.add_tool_result(
+                        messages, tool_call.id, tool_call.name, result
+                    )
+            else:
+                content = (response.content or "").strip()
+                if content.upper().startswith(NO_REPLY_TOKEN):
+                    logger.debug("Memory flush: NO_REPLY (nothing to store)")
+                else:
+                    logger.debug(f"Memory flush reply: {content[:100]}...")
+                break
+
+        session.memory_flush_compaction_count = session.compaction_count
+        self.sessions.save(session)
+
     async def _maybe_compact_session(self, session: "Session") -> None:
         """
         Short-term memory compression: when messages exceed threshold,
-        summarize older messages and keep only recent ones.
+        run pre-compaction memory flush (if enabled), then summarize older
+        messages and keep only recent ones.
         """
         if not self.compaction_enabled:
             return
@@ -124,6 +197,16 @@ class AgentLoop:
         keep = self.compaction_keep_recent
         if keep >= n:
             return
+
+        # Pre-compaction memory flush: once per compaction cycle
+        if self.compaction_memory_flush_enabled:
+            if session.memory_flush_compaction_count != session.compaction_count:
+                try:
+                    await self._run_memory_flush_turn(session)
+                    logger.info("Pre-compaction memory flush completed for session %s", session.key)
+                except Exception as e:
+                    logger.warning("Pre-compaction memory flush failed: %s", e)
+
         old = session.messages[:-keep]
         recent = session.messages[-keep:]
 
@@ -142,6 +225,7 @@ class AgentLoop:
             logger.warning(f"Compaction summarization failed: {e}")
 
         session.messages = recent
+        session.compaction_count = (session.compaction_count or 0) + 1
         session.updated_at = datetime.now()
         self.sessions.save(session)
         logger.info(f"Compacted session {session.key}: {n} -> {keep} messages")

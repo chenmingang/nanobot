@@ -11,6 +11,21 @@ COMPACTION_SYSTEM = (
     "Output only the summary, no preamble."
 )
 
+NO_REPLY_TOKEN = "NO_REPLY"
+
+MEMORY_FLUSH_SYSTEM = (
+    "Pre-compaction memory flush turn. The session is near auto-compaction; "
+    "capture durable memories to disk. Core/user-requested facts → MEMORY.md (remember_core). "
+    "Other notes (session summaries, TODO, discussion points) → memory/YYYY-MM-DD.md (append_daily). "
+    f"You may reply, but usually {NO_REPLY_TOKEN} is correct if nothing to store."
+)
+
+MEMORY_FLUSH_PROMPT = (
+    "Pre-compaction memory flush. Store durable memories now "
+    "(use remember_core for core facts, append_daily for other notes). "
+    f"If nothing to store, reply with {NO_REPLY_TOKEN}."
+)
+
 
 def format_messages_for_summary(messages: list[dict[str, Any]]) -> str:
     """Format messages as text for summarization."""

@@ -18,11 +18,14 @@ class Session:
 
     Stores messages in JSONL format for easy reading and persistence.
     compaction_summary: Summary of older messages after compaction (short-term memory).
+    memory_flush_compaction_count: Compaction count when last memory flush ran (once per compaction).
     """
 
     key: str  # channel:chat_id
     messages: list[dict[str, Any]] = field(default_factory=list)
     compaction_summary: str | None = None
+    compaction_count: int = 0
+    memory_flush_compaction_count: int | None = None
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -107,6 +110,8 @@ class SessionManager:
             messages = []
             metadata = {}
             compaction_summary = None
+            compaction_count = 0
+            memory_flush_compaction_count = None
             created_at = None
 
             with open(path) as f:
@@ -121,6 +126,8 @@ class SessionManager:
                         metadata = data.get("metadata", {})
                         created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
                         compaction_summary = data.get("compaction_summary")
+                        compaction_count = data.get("compaction_count", 0)
+                        memory_flush_compaction_count = data.get("memory_flush_compaction_count")
                     else:
                         messages.append(data)
 
@@ -128,6 +135,8 @@ class SessionManager:
                 key=key,
                 messages=messages,
                 compaction_summary=compaction_summary,
+                compaction_count=compaction_count,
+                memory_flush_compaction_count=memory_flush_compaction_count,
                 created_at=created_at or datetime.now(),
                 metadata=metadata
             )
@@ -146,6 +155,8 @@ class SessionManager:
                 "updated_at": session.updated_at.isoformat(),
                 "metadata": session.metadata,
                 "compaction_summary": session.compaction_summary,
+                "compaction_count": session.compaction_count,
+                "memory_flush_compaction_count": session.memory_flush_compaction_count,
             }
             f.write(json.dumps(metadata_line) + "\n")
             
