@@ -306,6 +306,9 @@ Config file: `~/.nanobot/config.json`
 | `nanobot agent` | Interactive chat mode |
 | `nanobot gateway` | Start the gateway |
 | `nanobot status` | Show status |
+| `nanobot sessions list` | List all conversation sessions |
+| `nanobot sessions clear` | Clear all sessions (with confirmation) |
+| `nanobot sessions delete <key>` | Delete a specific session |
 | `nanobot channels login` | Link WhatsApp (scan QR) |
 | `nanobot channels status` | Show channel status |
 

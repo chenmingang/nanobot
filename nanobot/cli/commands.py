@@ -342,6 +342,87 @@ def agent(
 
 
 # ============================================================================
+# Session Commands
+# ============================================================================
+
+
+sessions_app = typer.Typer(help="Manage conversation sessions")
+app.add_typer(sessions_app, name="sessions")
+
+
+@sessions_app.command("list")
+def sessions_list():
+    """List all conversation sessions."""
+    from nanobot.session.manager import SessionManager
+    from nanobot.utils.helpers import get_workspace_path
+
+    manager = SessionManager(get_workspace_path())
+    sessions = manager.list_sessions()
+
+    if not sessions:
+        console.print("[dim]No sessions found.[/dim]")
+        return
+
+    table = Table(title="Sessions")
+    table.add_column("Key", style="cyan")
+    table.add_column("Updated", style="yellow")
+    table.add_column("Created", style="dim")
+    for s in sessions:
+        table.add_row(
+            s.get("key", ""),
+            s.get("updated_at", "")[:19] if s.get("updated_at") else "",
+            s.get("created_at", "")[:19] if s.get("created_at") else "",
+        )
+    console.print(table)
+    console.print(f"\n[dim]Data dir: ~/.nanobot/sessions/[/dim]")
+
+
+@sessions_app.command("clear")
+def sessions_clear(force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation")):
+    """Clear all conversation sessions."""
+    from nanobot.utils.helpers import get_data_path
+
+    sessions_dir = get_data_path() / "sessions"
+    if not sessions_dir.exists():
+        console.print("[dim]No sessions to clear.[/dim]")
+        return
+
+    paths = list(sessions_dir.glob("*.jsonl"))
+    if not paths:
+        console.print("[dim]No sessions to clear.[/dim]")
+        return
+
+    if not force and not typer.confirm(f"Delete {len(paths)} session(s)?"):
+        raise typer.Exit()
+
+    for p in paths:
+        p.unlink()
+    console.print(f"[green]✓[/green] Cleared {len(paths)} session(s).")
+
+
+@sessions_app.command("delete")
+def sessions_delete(key: str = typer.Argument(..., help="Session key from list (e.g. feishu:oc_xxx, cli_direct)")):
+    """Delete a specific session."""
+    from nanobot.session.manager import SessionManager
+    from nanobot.utils.helpers import get_data_path, get_workspace_path
+
+    # Accept key as "channel:chat_id" or filename stem "channel_chatid"
+    session_key = key.replace("_", ":", 1) if ":" not in key and "_" in key else key
+    manager = SessionManager(get_workspace_path())
+    if manager.delete(session_key):
+        console.print(f"[green]✓[/green] Deleted session: {key}")
+    else:
+        # Try direct file delete (key might be filename stem)
+        sessions_dir = get_data_path() / "sessions"
+        path = sessions_dir / f"{key}.jsonl"
+        if path.exists():
+            path.unlink()
+            console.print(f"[green]✓[/green] Deleted session: {key}")
+        else:
+            console.print(f"[yellow]Session not found: {key}[/yellow]")
+
+
+# ============================================================================
 # Channel Commands
 # ============================================================================
 
