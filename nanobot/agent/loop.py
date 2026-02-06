@@ -67,6 +67,8 @@ class AgentLoop:
         compaction_memory_flush_enabled: bool = True,
         api_key: str | None = None,
         api_base: str | None = None,
+        memory_search_local_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        memory_search_store_path: str | None = None,
         brave_api_key: str | None = None
     ):
         self.bus = bus
@@ -83,6 +85,8 @@ class AgentLoop:
         self.compaction_memory_flush_enabled = compaction_memory_flush_enabled
         self.api_key = api_key
         self.api_base = api_base
+        self.memory_search_local_model = memory_search_local_model
+        self.memory_search_store_path = memory_search_store_path
         self.brave_api_key = brave_api_key
         
         self.context = ContextBuilder(workspace)
@@ -115,7 +119,11 @@ class AgentLoop:
         self.tools.register(RememberCoreTool(self.workspace))
         self.tools.register(AppendDailyTool(self.workspace))
         self.tools.register(OrganizeMemoryTool(self.workspace))
-        self.tools.register(MemorySearchTool(self.workspace, api_key=self.api_key, api_base=self.api_base))
+        self.tools.register(MemorySearchTool(
+            self.workspace,
+            local_model=self.memory_search_local_model,
+            store_path=self.memory_search_store_path,
+        ))
         self.tools.register(MemoryGetTool(self.workspace))
 
         # Shell tool

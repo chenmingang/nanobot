@@ -162,11 +162,21 @@ class AppendDailyTool(Tool):
 
 
 class MemorySearchTool(Tool):
-    """Tool to semantically search memory files (MEMORY.md, memory/*.md)."""
+    """Tool to semantically search memory files (MEMORY.md, memory/*.md) via ChromaDB + local embedding."""
 
-    def __init__(self, workspace: Path, api_key: str | None = None, api_base: str | None = None):
+    def __init__(
+        self,
+        workspace: Path,
+        local_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        store_path: str | None = None,
+    ):
         self.workspace = Path(workspace).expanduser().resolve()
-        self.index = MemorySearchIndex(self.workspace, api_key=api_key, api_base=api_base)
+        store = Path(store_path).expanduser() if store_path else None
+        self.index = MemorySearchIndex(
+            self.workspace,
+            local_model=local_model,
+            store_path=store,
+        )
 
     @property
     def name(self) -> str:

@@ -70,9 +70,13 @@ class CompactionConfig(BaseModel):
 
 
 class MemorySearchConfig(BaseModel):
-    """Vector memory search config (semantic search over MEMORY.md and memory/*.md)."""
+    """Vector memory search config (ChromaDB + local sentence-transformers embedding)."""
 
     enabled: bool = True
+    local_model: str = Field(
+        default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        description="Local model for sentence-transformers embedding",
+    )
     store_path: str = Field(
         default="~/.nanobot/memory/search",
         description="ChromaDB persistence path",

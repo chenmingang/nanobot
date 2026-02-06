@@ -211,6 +211,8 @@ def gateway(
         compaction_memory_flush_enabled=config.agents.defaults.compaction.memory_flush.enabled,
         api_key=config.get_api_key(),
         api_base=config.get_api_base(),
+        memory_search_local_model=config.agents.defaults.memory_search.local_model,
+        memory_search_store_path=config.agents.defaults.memory_search.store_path,
         brave_api_key=config.tools.web.search.api_key or None
     )
 
@@ -325,6 +327,8 @@ def agent(
         compaction_memory_flush_enabled=config.agents.defaults.compaction.memory_flush.enabled,
         api_key=api_key,
         api_base=api_base,
+        memory_search_local_model=config.agents.defaults.memory_search.local_model,
+        memory_search_store_path=config.agents.defaults.memory_search.store_path,
         brave_api_key=config.tools.web.search.api_key or None
     )
 
@@ -722,6 +726,46 @@ def cron_run(
         console.print(f"[green]✓[/green] Job executed")
     else:
         console.print(f"[red]Failed to run job {job_id}[/red]")
+
+
+# ============================================================================
+# Memory Commands
+# ============================================================================
+
+
+@app.command()
+def memory(
+    query: str = typer.Argument(None, help="Search query (omit to show help)"),
+    top_k: int = typer.Option(5, "--top", "-n", help="Max results"),
+):
+    """Semantic search over memory files (MEMORY.md, memory/*.md) via ChromaDB + local embedding."""
+    from nanobot.config.loader import load_config
+    from nanobot.agent.memory_search import MemorySearchIndex
+
+    if not query or not query.strip():
+        console.print("Usage: nanobot memory <query> [--top N]")
+        console.print("Example: nanobot memory \"user preferences\"")
+        return
+
+    config = load_config()
+    ms = config.agents.defaults.memory_search
+    store_path = Path(ms.store_path).expanduser() if ms.store_path else None
+    idx = MemorySearchIndex(
+        config.workspace_path,
+        local_model=ms.local_model,
+        store_path=store_path,
+    )
+    results = idx.search(query.strip(), top_k=top_k)
+
+    if not results:
+        console.print("[dim]No results. Ensure chromadb and sentence-transformers (pip install nanobot-ai[memory]), and memory files exist.[/dim]")
+        return
+
+    console.print(f"[green]Found {len(results)} result(s):[/green]\n")
+    for i, r in enumerate(results, 1):
+        console.print(f"[bold]{i}. {r['path']} (line {r['start_line']}, score {r['score']})[/bold]")
+        console.print(r["content"])
+        console.print()
 
 
 # ============================================================================
