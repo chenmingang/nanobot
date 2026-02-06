@@ -18,6 +18,7 @@ from nanobot.agent.compaction import (
     summarize_messages,
 )
 from nanobot.agent.context import ContextBuilder
+from nanobot.agent.memory import MemoryStore
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
 from nanobot.agent.tools.memory_tools import (
@@ -37,6 +38,8 @@ from nanobot.session.manager import SessionManager
 
 if TYPE_CHECKING:
     from nanobot.session.manager import Session
+
+MEMORY_WRITE_TOOLS = frozenset(("remember_core", "append_daily", "organize_memory", "remember"))
 
 
 class AgentLoop:
@@ -145,6 +148,8 @@ class AgentLoop:
         """
         Pre-compaction memory flush: run a silent agent turn to store durable
         memories (remember_core, append_daily) before compaction.
+        If the LLM does not call append_daily, we always append a minimal session
+        note so that the daily file (memory/YYYY-MM-DD.md) is created.
         """
         history = session.get_history(max_messages=self.max_history_messages)
         messages = [
@@ -153,6 +158,7 @@ class AgentLoop:
             {"role": "user", "content": MEMORY_FLUSH_PROMPT},
         ]
 
+        append_daily_called = False
         max_flush_iterations = 5
         for _ in range(max_flush_iterations):
             response = await self.provider.chat(
@@ -176,6 +182,8 @@ class AgentLoop:
                     messages, response.content, tool_call_dicts
                 )
                 for tool_call in response.tool_calls:
+                    if tool_call.name == "append_daily":
+                        append_daily_called = True
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
@@ -188,8 +196,62 @@ class AgentLoop:
                     logger.debug(f"Memory flush reply: {content[:100]}...")
                 break
 
+        # Fallback: always ensure today's daily file exists when compaction runs
+        if not append_daily_called and history:
+            try:
+                store = MemoryStore(self.workspace)
+                n = len(session.messages)
+                note = (
+                    f"Session notes: conversation reached compaction threshold ({n} messages). "
+                    "Key points may be in prior compaction summary or MEMORY.md."
+                )
+                store.append_daily(note)
+                logger.debug("Memory flush: auto-appended minimal daily note (LLM did not call append_daily)")
+            except Exception as e:
+                logger.warning("Memory flush: fallback append_daily failed: %s", e)
+
         session.memory_flush_compaction_count = session.compaction_count
         self.sessions.save(session)
+
+        # Reindex vector memory after flush (engineering trigger, not model-dependent)
+        await self._reindex_memory_search()
+
+    async def _reindex_memory_search(self) -> None:
+        """
+        Trigger ChromaDB index update programmatically.
+        Runs in thread pool to avoid blocking (embedding is CPU-bound).
+        """
+        tool = self.tools.get("memory_search")
+        if not isinstance(tool, MemorySearchTool):
+            return
+        try:
+            n = await asyncio.to_thread(tool.index.index_paths)
+            if n > 0:
+                logger.debug("Memory search index updated: %d chunks", n)
+        except Exception as e:
+            logger.warning("Memory search reindex failed: %s", e)
+
+    async def _recall_memory(self, query: str, top_k: int = 5) -> str | None:
+        """
+        Engineering recall: run vector search on memory and return formatted results.
+        Runs in thread pool. Returns None if no results or search unavailable.
+        """
+        tool = self.tools.get("memory_search")
+        if not isinstance(tool, MemorySearchTool):
+            return None
+        if not query or not query.strip():
+            return None
+        try:
+            results = await asyncio.to_thread(tool.index.search, query.strip(), top_k)
+        except Exception as e:
+            logger.warning("Memory recall failed: %s", e)
+            return None
+        if not results:
+            return None
+        parts = []
+        for i, r in enumerate(results, 1):
+            parts.append(f"[{i}] {r['path']} (line {r['start_line']}, score {r['score']}):\n{r['content']}")
+        return "\n\n".join(parts)
 
     async def _maybe_compact_session(self, session: "Session") -> None:
         """
@@ -304,18 +366,23 @@ class AgentLoop:
         # Short-term memory compression: summarize older messages if needed
         await self._maybe_compact_session(session)
 
+        # Engineering recall: semantic search on memory, inject relevant chunks into context
+        memory_recall = await self._recall_memory(msg.content, top_k=5)
+
         # Build initial messages (use get_history for LLM-formatted messages)
         messages = self.context.build_messages(
             history=session.get_history(max_messages=self.max_history_messages),
             current_message=msg.content,
             media=msg.media if msg.media else None,
             compaction_summary=session.compaction_summary,
+            memory_recall=memory_recall,
         )
         
         # Agent loop
         iteration = 0
         final_content = None
-        
+        memory_tools_called: set[str] = set()
+
         while iteration < self.max_iterations:
             iteration += 1
             
@@ -351,6 +418,8 @@ class AgentLoop:
                     args_str = json.dumps(tool_call.arguments)
                     logger.debug(f"Executing tool: {tool_call.name} with arguments: {args_str}")
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                    if tool_call.name in MEMORY_WRITE_TOOLS:
+                        memory_tools_called.add(tool_call.name)
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
@@ -361,6 +430,10 @@ class AgentLoop:
         
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
+
+        # Reindex vector memory after memory write tools (engineering trigger)
+        if memory_tools_called:
+            await self._reindex_memory_search()
         
         # Save to session
         session.add_message("user", msg.content)
@@ -407,16 +480,21 @@ class AgentLoop:
 
         await self._maybe_compact_session(session)
 
+        # Engineering recall: semantic search on memory
+        memory_recall = await self._recall_memory(msg.content, top_k=5)
+
         # Build messages with the announce content
         messages = self.context.build_messages(
             history=session.get_history(max_messages=self.max_history_messages),
             current_message=msg.content,
             compaction_summary=session.compaction_summary,
+            memory_recall=memory_recall,
         )
         
         # Agent loop (limited for announce handling)
         iteration = 0
         final_content = None
+        memory_tools_called: set[str] = set()
         
         while iteration < self.max_iterations:
             iteration += 1
@@ -449,6 +527,8 @@ class AgentLoop:
                     args_str = json.dumps(tool_call.arguments)
                     logger.debug(f"Executing tool: {tool_call.name} with arguments: {args_str}")
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                    if tool_call.name in MEMORY_WRITE_TOOLS:
+                        memory_tools_called.add(tool_call.name)
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
@@ -458,6 +538,9 @@ class AgentLoop:
         
         if final_content is None:
             final_content = "Background task completed."
+        
+        if memory_tools_called:
+            await self._reindex_memory_search()
         
         # Save to session (mark as system message in history)
         session.add_message("user", f"[System: {msg.sender_id}] {msg.content}")

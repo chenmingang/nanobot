@@ -128,6 +128,7 @@ Use memory_search to semantically search memory files when you need to recall re
         skill_names: list[str] | None = None,
         media: list[str] | None = None,
         compaction_summary: str | None = None,
+        memory_recall: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         Build the complete message list for an LLM call.
@@ -138,16 +139,19 @@ Use memory_search to semantically search memory files when you need to recall re
             skill_names: Optional skills to include.
             media: Optional list of local file paths for images/media.
             compaction_summary: Optional summary of older conversation (short-term memory).
+            memory_recall: Optional relevant memories from vector search (engineering recall).
 
         Returns:
             List of messages including system prompt.
         """
         messages = []
 
-        # System prompt (with optional prior conversation summary)
+        # System prompt (with optional prior conversation summary and memory recall)
         system_prompt = self.build_system_prompt(skill_names)
         if compaction_summary:
             system_prompt += f"\n\n## Prior conversation summary\n\n{compaction_summary}"
+        if memory_recall:
+            system_prompt += f"\n\n## Relevant memories (from semantic search)\n\n{memory_recall}"
         messages.append({"role": "system", "content": system_prompt})
 
         # History
