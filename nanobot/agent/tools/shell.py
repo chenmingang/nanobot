@@ -41,7 +41,10 @@ class ExecTool(Tool):
     
     @property
     def description(self) -> str:
-        return "Execute a shell command and return its output. Use with caution."
+        return (
+            "Execute a shell command and return its output. Use this when the user asks to run/execute a command "
+            "(e.g. 运行、执行、帮我执行、run xxx). Always call exec to run the command—do NOT just reply with the command text."
+        )
     
     @property
     def parameters(self) -> dict[str, Any]:

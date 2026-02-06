@@ -43,9 +43,9 @@ organize_memory() -> str
 ## Shell Execution
 
 ### exec
-Execute a shell command and return output.
+Execute a shell command and return output. When the user asks to run/execute a command, call exec directly—do NOT just reply with the command text.
 ```
-exec(command: str, working_dir: str = None) -> str
+exec(command: str, working_dir: str = None, confirm: bool = False) -> str
 ```
 
 **Safety Notes:**
