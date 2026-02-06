@@ -515,13 +515,15 @@ class FeishuChannel(BaseChannel):
             except Exception as e:  # pragma: no cover - defensive
                 logger.error(f"Error handling Feishu inbound message: {e}")
 
-        # Some Feishu events (e.g. message_read) are not used by nanobot but are
-        # still pushed over the same WebSocket connection. If we don't register
-        # a handler, the SDK logs noisy \"processor not found\" errors. We attach
-        # a no-op handler to keep logs clean.
+        # Some Feishu events are not used by nanobot but are still pushed over the
+        # same WebSocket. Without a handler the SDK logs "processor not found".
+        # Register no-op handlers to keep logs clean.
 
         def _on_message_read(*_: Any, **__: Any) -> None:
-            # Intentionally ignore read-receipt events
+            return
+
+        def _on_bot_p2p_chat_entered(*_: Any, **__: Any) -> None:
+            # User opened a P2P chat with the bot; no action needed
             return
 
         try:
@@ -529,6 +531,7 @@ class FeishuChannel(BaseChannel):
                 lark.EventDispatcherHandler.builder("", "")
                 .register_p2_im_message_receive_v1(_on_message)
                 .register_p2_im_message_message_read_v1(_on_message_read)
+                .register_p2_im_chat_access_event_bot_p2p_chat_entered_v1(_on_bot_p2p_chat_entered)
                 .build()
             )
 

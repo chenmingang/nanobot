@@ -1,12 +1,16 @@
 """LiteLLM provider implementation for multi-provider support."""
 
+import json
 import os
 from typing import Any
 
 import litellm
 from litellm import acompletion
+from loguru import logger
 
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+
+LOG_PREFIX = "[nanobot.llm]"
 
 
 class LiteLLMProvider(LLMProvider):
@@ -133,9 +137,12 @@ class LiteLLMProvider(LLMProvider):
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
         
+        self._log_request(model=kwargs["model"], messages=messages, tools=tools)
         try:
             response = await acompletion(**kwargs)
-            return self._parse_response(response)
+            parsed = self._parse_response(response)
+            self._log_response(parsed)
+            return parsed
         except Exception as e:
             # Return error as content for graceful handling
             return LLMResponse(
@@ -180,6 +187,23 @@ class LiteLLMProvider(LLMProvider):
             finish_reason=choice.finish_reason or "stop",
             usage=usage,
         )
+    
+    def _log_request(self, model: str, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> None:
+        """在日志中完整打印发给大模型的请求（单条 JSON）."""
+        payload = {"model": model, "messages": messages}
+        if tools is not None:
+            payload["tools"] = tools
+        logger.info(f"{LOG_PREFIX} request:\n{json.dumps(payload, ensure_ascii=False, indent=2)}")
+    
+    def _log_response(self, resp: LLMResponse) -> None:
+        """在日志中完整打印大模型响应（单条 JSON）."""
+        out = {
+            "content": resp.content,
+            "finish_reason": resp.finish_reason,
+            "tool_calls": [{"id": tc.id, "name": tc.name, "arguments": tc.arguments} for tc in resp.tool_calls],
+            "usage": resp.usage,
+        }
+        logger.info(f"{LOG_PREFIX} response:\n{json.dumps(out, ensure_ascii=False, indent=2)}")
     
     def get_default_model(self) -> str:
         """Get the default model."""
