@@ -41,6 +41,20 @@ class ChannelsConfig(BaseModel):
     feishu: FeishuConfig = Field(default_factory=FeishuConfig)
 
 
+class CompactionConfig(BaseModel):
+    """Short-term memory compression config (summarize older conversation)."""
+
+    enabled: bool = True
+    threshold_messages: int = Field(
+        default=60,
+        description="Trigger compaction when messages exceed this count",
+    )
+    keep_recent: int = Field(
+        default=20,
+        description="Keep this many recent messages after compaction",
+    )
+
+
 class AgentDefaults(BaseModel):
     """Default agent configuration."""
     workspace: str = "~/.nanobot/workspace"
@@ -51,6 +65,10 @@ class AgentDefaults(BaseModel):
     max_history_messages: int = Field(
         default=50,
         description="Maximum number of conversation messages sent to the LLM (user+assistant pairs)",
+    )
+    compaction: CompactionConfig = Field(
+        default_factory=CompactionConfig,
+        description="Short-term memory compression (summarize older conversation)",
     )
 
 

@@ -125,6 +125,7 @@ When the user asks to organize/tidy MEMORY (e.g. 整理记忆、整理 MEMORY、
         current_message: str,
         skill_names: list[str] | None = None,
         media: list[str] | None = None,
+        compaction_summary: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         Build the complete message list for an LLM call.
@@ -134,14 +135,17 @@ When the user asks to organize/tidy MEMORY (e.g. 整理记忆、整理 MEMORY、
             current_message: The new user message.
             skill_names: Optional skills to include.
             media: Optional list of local file paths for images/media.
+            compaction_summary: Optional summary of older conversation (short-term memory).
 
         Returns:
             List of messages including system prompt.
         """
         messages = []
 
-        # System prompt
+        # System prompt (with optional prior conversation summary)
         system_prompt = self.build_system_prompt(skill_names)
+        if compaction_summary:
+            system_prompt += f"\n\n## Prior conversation summary\n\n{compaction_summary}"
         messages.append({"role": "system", "content": system_prompt})
 
         # History

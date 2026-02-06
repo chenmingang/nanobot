@@ -2,14 +2,16 @@
 
 import asyncio
 import json
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
+from nanobot.agent.compaction import summarize_messages
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
@@ -20,6 +22,9 @@ from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.subagent import SubagentManager
 from nanobot.session.manager import SessionManager
+
+if TYPE_CHECKING:
+    from nanobot.session.manager import Session
 
 
 class AgentLoop:
@@ -44,6 +49,9 @@ class AgentLoop:
         max_tokens: int = 4096,
         temperature: float = 0.7,
         max_history_messages: int = 50,
+        compaction_enabled: bool = True,
+        compaction_threshold: int = 60,
+        compaction_keep_recent: int = 20,
         brave_api_key: str | None = None
     ):
         self.bus = bus
@@ -54,6 +62,9 @@ class AgentLoop:
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.max_history_messages = max_history_messages
+        self.compaction_enabled = compaction_enabled
+        self.compaction_threshold = compaction_threshold
+        self.compaction_keep_recent = compaction_keep_recent
         self.brave_api_key = brave_api_key
         
         self.context = ContextBuilder(workspace)
@@ -99,7 +110,42 @@ class AgentLoop:
         # Spawn tool (for subagents)
         spawn_tool = SpawnTool(manager=self.subagents)
         self.tools.register(spawn_tool)
-    
+
+    async def _maybe_compact_session(self, session: "Session") -> None:
+        """
+        Short-term memory compression: when messages exceed threshold,
+        summarize older messages and keep only recent ones.
+        """
+        if not self.compaction_enabled:
+            return
+        n = len(session.messages)
+        if n <= self.compaction_threshold:
+            return
+        keep = self.compaction_keep_recent
+        if keep >= n:
+            return
+        old = session.messages[:-keep]
+        recent = session.messages[-keep:]
+
+        # Include prior summary as context for merged summarization
+        prior = session.compaction_summary
+        if prior:
+            old = [{"role": "user", "content": f"Prior summary: {prior}"}] + old
+
+        try:
+            new_summary = await summarize_messages(
+                self.provider, old, model=self.model, max_tokens=1500
+            )
+            if new_summary:
+                session.compaction_summary = new_summary
+        except Exception as e:
+            logger.warning(f"Compaction summarization failed: {e}")
+
+        session.messages = recent
+        session.updated_at = datetime.now()
+        self.sessions.save(session)
+        logger.info(f"Compacted session {session.key}: {n} -> {keep} messages")
+
     async def run(self) -> None:
         """Run the agent loop, processing messages from the bus."""
         self._running = True
@@ -162,12 +208,16 @@ class AgentLoop:
         spawn_tool = self.tools.get("spawn")
         if isinstance(spawn_tool, SpawnTool):
             spawn_tool.set_context(msg.channel, msg.chat_id)
-        
+
+        # Short-term memory compression: summarize older messages if needed
+        await self._maybe_compact_session(session)
+
         # Build initial messages (use get_history for LLM-formatted messages)
         messages = self.context.build_messages(
             history=session.get_history(max_messages=self.max_history_messages),
             current_message=msg.content,
             media=msg.media if msg.media else None,
+            compaction_summary=session.compaction_summary,
         )
         
         # Agent loop
@@ -262,11 +312,14 @@ class AgentLoop:
         spawn_tool = self.tools.get("spawn")
         if isinstance(spawn_tool, SpawnTool):
             spawn_tool.set_context(origin_channel, origin_chat_id)
-        
+
+        await self._maybe_compact_session(session)
+
         # Build messages with the announce content
         messages = self.context.build_messages(
             history=session.get_history(max_messages=self.max_history_messages),
-            current_message=msg.content
+            current_message=msg.content,
+            compaction_summary=session.compaction_summary,
         )
         
         # Agent loop (limited for announce handling)

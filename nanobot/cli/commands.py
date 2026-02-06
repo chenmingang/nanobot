@@ -205,6 +205,9 @@ def gateway(
         max_tokens=config.agents.defaults.max_tokens,
         temperature=config.agents.defaults.temperature,
         max_history_messages=config.agents.defaults.max_history_messages,
+        compaction_enabled=config.agents.defaults.compaction.enabled,
+        compaction_threshold=config.agents.defaults.compaction.threshold_messages,
+        compaction_keep_recent=config.agents.defaults.compaction.keep_recent,
         brave_api_key=config.tools.web.search.api_key or None
     )
     
@@ -313,6 +316,9 @@ def agent(
         provider=provider,
         workspace=config.workspace_path,
         max_history_messages=config.agents.defaults.max_history_messages,
+        compaction_enabled=config.agents.defaults.compaction.enabled,
+        compaction_threshold=config.agents.defaults.compaction.threshold_messages,
+        compaction_keep_recent=config.agents.defaults.compaction.keep_recent,
         brave_api_key=config.tools.web.search.api_key or None
     )
     

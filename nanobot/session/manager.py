@@ -15,12 +15,14 @@ from nanobot.utils.helpers import ensure_dir, safe_filename
 class Session:
     """
     A conversation session.
-    
+
     Stores messages in JSONL format for easy reading and persistence.
+    compaction_summary: Summary of older messages after compaction (short-term memory).
     """
-    
+
     key: str  # channel:chat_id
     messages: list[dict[str, Any]] = field(default_factory=list)
+    compaction_summary: str | None = None
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -39,17 +41,14 @@ class Session:
     def get_history(self, max_messages: int = 50) -> list[dict[str, Any]]:
         """
         Get message history for LLM context.
-        
+
         Args:
             max_messages: Maximum messages to return.
-        
+
         Returns:
-            List of messages in LLM format.
+            List of messages in LLM format (compaction_summary is handled separately).
         """
-        # Get recent messages
         recent = self.messages[-max_messages:] if len(self.messages) > max_messages else self.messages
-        
-        # Convert to LLM format (just role and content)
         return [{"role": m["role"], "content": m["content"]} for m in recent]
     
     def clear(self) -> None:
@@ -107,25 +106,28 @@ class SessionManager:
         try:
             messages = []
             metadata = {}
+            compaction_summary = None
             created_at = None
-            
+
             with open(path) as f:
                 for line in f:
                     line = line.strip()
                     if not line:
                         continue
-                    
+
                     data = json.loads(line)
-                    
+
                     if data.get("_type") == "metadata":
                         metadata = data.get("metadata", {})
                         created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
+                        compaction_summary = data.get("compaction_summary")
                     else:
                         messages.append(data)
-            
+
             return Session(
                 key=key,
                 messages=messages,
+                compaction_summary=compaction_summary,
                 created_at=created_at or datetime.now(),
                 metadata=metadata
             )
@@ -138,12 +140,12 @@ class SessionManager:
         path = self._get_session_path(session.key)
         
         with open(path, "w") as f:
-            # Write metadata first
             metadata_line = {
                 "_type": "metadata",
                 "created_at": session.created_at.isoformat(),
                 "updated_at": session.updated_at.isoformat(),
-                "metadata": session.metadata
+                "metadata": session.metadata,
+                "compaction_summary": session.compaction_summary,
             }
             f.write(json.dumps(metadata_line) + "\n")
             
