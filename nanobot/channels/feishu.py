@@ -117,19 +117,32 @@ class FeishuChannel(BaseChannel):
             logger.error(f"Error fetching Feishu tenant_access_token: {e}")
             return False
 
-    async def _download_feishu_file(self, file_key: str) -> str | None:
-        """Download file from Feishu by file_key; save to nanobot media dir. Returns local path or None."""
+    async def _download_feishu_file(
+        self, file_key: str, *, message_id: str | None = None
+    ) -> str | None:
+        """Download file from Feishu; save to nanobot media dir. Returns local path or None.
+
+        For user-sent files (im.message.receive_v1), must pass message_id to use the
+        message-resource API (otherwise 234008 "app is not the resource sender").
+        """
         if not self._client or not self._tenant_access_token:
             return None
         media_dir = get_media_path()
-        url = f"https://open.feishu.cn/open-apis/im/v1/files/{file_key}"
         headers = {"Authorization": f"Bearer {self._tenant_access_token}"}
+
+        if message_id:
+            # User-sent file: use message-resource API (avoids 234008 "app is not the resource sender")
+            url = f"https://open.feishu.cn/open-apis/im/v1/messages/{message_id}/resources/{file_key}"
+            params = {"type": "file"}
+        else:
+            url = f"https://open.feishu.cn/open-apis/im/v1/files/{file_key}"
+            params = {}
+
         try:
-            resp = await self._client.get(url, headers=headers)
+            resp = await self._client.get(url, headers=headers, params=params if params else None)
             if resp.status_code != 200:
                 logger.warning("Feishu file download failed: HTTP {} - {}", resp.status_code, resp.text[:200])
                 return None
-            # Response may be file bytes or redirect was followed
             ext = ""
             cd = resp.headers.get("content-disposition") or ""
             if "filename=" in cd:
@@ -144,15 +157,28 @@ class FeishuChannel(BaseChannel):
             logger.error("Feishu file download error: {}", e)
             return None
 
-    async def _download_feishu_image(self, image_key: str) -> str | None:
-        """Download image from Feishu by image_key; save to nanobot media dir. Returns local path or None."""
+    async def _download_feishu_image(
+        self, image_key: str, *, message_id: str | None = None
+    ) -> str | None:
+        """Download image from Feishu; save to nanobot media dir. Returns local path or None.
+
+        For user-sent images (im.message.receive_v1), must pass message_id to use the
+        message-resource API (otherwise 234008 "app is not the resource sender").
+        """
         if not self._client or not self._tenant_access_token:
             return None
         media_dir = get_media_path()
-        url = f"https://open.feishu.cn/open-apis/im/v1/images/{image_key}"
         headers = {"Authorization": f"Bearer {self._tenant_access_token}"}
+
+        if message_id:
+            url = f"https://open.feishu.cn/open-apis/im/v1/messages/{message_id}/resources/{image_key}"
+            params = {"type": "image"}
+        else:
+            url = f"https://open.feishu.cn/open-apis/im/v1/images/{image_key}"
+            params = {}
+
         try:
-            resp = await self._client.get(url, headers=headers)
+            resp = await self._client.get(url, headers=headers, params=params if params else None)
             if resp.status_code != 200:
                 logger.warning("Feishu image download failed: HTTP {} - {}", resp.status_code, resp.text[:200])
                 return None
@@ -636,7 +662,9 @@ class FeishuChannel(BaseChannel):
                             sender_id=str(sender_id),
                             chat_id=str(chat_id),
                             metadata=metadata,
-                            download_coro=self._download_feishu_file(file_key),
+                            download_coro=self._download_feishu_file(
+                                file_key, message_id=metadata.get("message_id")
+                            ),
                             label="file",
                         )
                     fut = asyncio.run_coroutine_threadsafe(
@@ -663,7 +691,9 @@ class FeishuChannel(BaseChannel):
                             sender_id=str(sender_id),
                             chat_id=str(chat_id),
                             metadata=metadata,
-                            download_coro=self._download_feishu_image(image_key),
+                            download_coro=self._download_feishu_image(
+                                image_key, message_id=metadata.get("message_id")
+                            ),
                             label="image",
                         )
                     fut = asyncio.run_coroutine_threadsafe(
