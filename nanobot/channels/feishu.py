@@ -2,9 +2,10 @@
 
 This channel handles:
   - Outbound messaging to Feishu chats using the HTTP OpenAPI (text, file, image).
-  - Inbound Feishu events via Feishu Python SDK WebSocket client
-    (    im.message.receive_v1): text, file, and image messages are forwarded into
-    the nanobot bus; files and images are downloaded to nanobot's media dir.
+  - Inbound Feishu events via Feishu Python SDK WebSocket client (im.message.receive_v1):
+    text, file, image, and audio (voice) messages are forwarded into the nanobot bus;
+    files, images, and audio are downloaded to nanobot's media dir. Audio is transcribed
+    via Groq Whisper when groq_api_key is configured.
 
 The WebSocket client is implemented using the official `lark-oapi` SDK:
 https://open.feishu.cn/document/server-side-sdk/python--sdk/handle-events
@@ -59,11 +60,12 @@ class FeishuChannel(BaseChannel):
 
     name = "feishu"
 
-    def __init__(self, config: Any, bus: MessageBus):
+    def __init__(self, config: Any, bus: MessageBus, groq_api_key: str | None = None):
         super().__init__(config, bus)
         # At runtime we treat config as a generic object with the attributes
         # defined in ChannelsConfig.FeishuConfig (tenant_access_token, app_id, etc.)
         self.config = config
+        self._groq_api_key = groq_api_key
         self._client: httpx.AsyncClient | None = None
         self._tenant_access_token: str = ""
         # WebSocket client from lark-oapi for inbound events
@@ -214,6 +216,44 @@ class FeishuChannel(BaseChannel):
             chat_id=chat_id,
             content=content,
             media=[path] if path else [],
+            metadata=metadata,
+        )
+
+    async def _handle_inbound_audio(
+        self,
+        sender_id: str,
+        chat_id: str,
+        file_key: str,
+        message_id: str | None,
+        metadata: dict[str, Any],
+    ) -> None:
+        """Download voice/audio message, save to media, transcribe if Groq configured, forward to bus."""
+        path = await self._download_feishu_file(file_key, message_id=message_id)
+        if not path:
+            await self._handle_message(
+                sender_id=sender_id,
+                chat_id=chat_id,
+                content="[audio: download failed]",
+                media=[],
+                metadata=metadata,
+            )
+            return
+        content_parts = [f"[audio: {path}]"]
+        if self._groq_api_key:
+            try:
+                from nanobot.providers.transcription import GroqTranscriptionProvider
+                transcriber = GroqTranscriptionProvider(api_key=self._groq_api_key)
+                transcription = await transcriber.transcribe(path)
+                if transcription:
+                    logger.info("Feishu audio transcribed: {}...", _shorten(transcription, 50))
+                    content_parts.append(f"[transcription: {transcription}]")
+            except Exception as e:
+                logger.warning("Feishu audio transcription failed: {}", e)
+        await self._handle_message(
+            sender_id=sender_id,
+            chat_id=chat_id,
+            content="\n".join(content_parts),
+            media=[path],
             metadata=metadata,
         )
 
@@ -698,6 +738,33 @@ class FeishuChannel(BaseChannel):
                         )
                     fut = asyncio.run_coroutine_threadsafe(
                         _handle_image_with_thinking(),
+                        self._loop,
+                    )
+                    fut.add_done_callback(lambda _: None)
+                    return
+
+                if msg_type == "audio":
+                    file_key = body.get("file_key")
+                    if not file_key:
+                        return
+                    logger.info(
+                        "Feishu inbound <- chat_id={} sender_id={} message_id={} audio file_key={}",
+                        chat_id,
+                        sender_id,
+                        msg.message_id,
+                        _shorten(file_key, 80),
+                    )
+                    async def _handle_audio_with_thinking():
+                        await self._schedule_thinking_message(str(chat_id))
+                        await self._handle_inbound_audio(
+                            sender_id=str(sender_id),
+                            chat_id=str(chat_id),
+                            file_key=file_key,
+                            message_id=metadata.get("message_id"),
+                            metadata=metadata,
+                        )
+                    fut = asyncio.run_coroutine_threadsafe(
+                        _handle_audio_with_thinking(),
                         self._loop,
                     )
                     fut.add_done_callback(lambda _: None)
