@@ -72,6 +72,9 @@ class LiteLLMProvider(LLMProvider):
         
         # Disable LiteLLM logging noise
         litellm.suppress_debug_info = True
+        # Fix: thinking models (o1, o3, Claude thinking) require reasoning_content/thinking_blocks
+        # in assistant tool-call messages. When missing, LiteLLM drops the thinking param to avoid 400.
+        litellm.modify_params = True
     
     async def chat(
         self,
