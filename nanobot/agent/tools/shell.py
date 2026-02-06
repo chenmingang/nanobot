@@ -55,14 +55,19 @@ class ExecTool(Tool):
                 "working_dir": {
                     "type": "string",
                     "description": "Optional working directory for the command"
+                },
+                "confirm": {
+                    "type": "boolean",
+                    "description": "Set to true to confirm execution of a command that matches dangerous patterns. When the command is flagged, ask the user for confirmation, then call exec again with confirm=true.",
+                    "default": False,
                 }
             },
             "required": ["command"]
         }
     
-    async def execute(self, command: str, working_dir: str | None = None, **kwargs: Any) -> str:
+    async def execute(self, command: str, working_dir: str | None = None, confirm: bool = False, **kwargs: Any) -> str:
         cwd = working_dir or self.working_dir or os.getcwd()
-        guard_error = self._guard_command(command, cwd)
+        guard_error = self._guard_command(command, cwd, confirm)
         if guard_error:
             return guard_error
         
@@ -108,14 +113,19 @@ class ExecTool(Tool):
         except Exception as e:
             return f"Error executing command: {str(e)}"
 
-    def _guard_command(self, command: str, cwd: str) -> str | None:
-        """Best-effort safety guard for potentially destructive commands."""
+    def _guard_command(self, command: str, cwd: str, confirm: bool = False) -> str | None:
+        """Best-effort safety guard for potentially destructive commands. Requires confirm=true to execute dangerous commands."""
         cmd = command.strip()
         lower = cmd.lower()
 
         for pattern in self.deny_patterns:
             if re.search(pattern, lower):
-                return "Error: Command blocked by safety guard (dangerous pattern detected)"
+                if confirm:
+                    break  # User confirmed, allow execution
+                return (
+                    "This command matches potentially dangerous patterns (e.g. rm -rf, format, dd, shutdown). "
+                    "If the user confirms they want to run it, call exec again with confirm=true."
+                )
 
         if self.allow_patterns:
             if not any(re.search(p, lower) for p in self.allow_patterns):

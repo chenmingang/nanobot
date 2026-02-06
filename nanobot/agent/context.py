@@ -100,7 +100,10 @@ For normal conversation, just respond with text - do not call the message tool.
 When you create or process files (like converting documents, generating images, or creating reports), you can send them to the user using the 'message' tool with the 'media' parameter containing the file path(s). For example, if you convert a document to Markdown, you can send the resulting file using: message(content="I've converted the document", media=["/path/to/converted.md"]).
 
 Always be helpful, accurate, and concise. When using tools, explain what you're doing.
-When remembering something, write to {workspace_path}/memory/MEMORY.md"""
+
+When the user asks to remember something (e.g. 记住、remember、帮我记一下), you MUST call the remember tool with the content. Do not just say you will remember—always call remember(content=...) to persist it to MEMORY.md.
+
+When the user asks to organize/tidy MEMORY (e.g. 整理记忆、整理 MEMORY、organize memory), call the organize_memory tool to categorize and deduplicate entries for better context."""
     
     def _load_bootstrap_files(self) -> str:
         """Load all bootstrap files from workspace."""

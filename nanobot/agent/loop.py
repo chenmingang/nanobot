@@ -13,6 +13,7 @@ from nanobot.providers.base import LLMProvider
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
+from nanobot.agent.tools.memory import OrganizeMemoryTool, RememberTool
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
 from nanobot.agent.tools.message import MessageTool
@@ -77,6 +78,10 @@ class AgentLoop:
         self.tools.register(WriteFileTool())
         self.tools.register(EditFileTool())
         self.tools.register(ListDirTool())
+
+        # Memory tools
+        self.tools.register(RememberTool(self.workspace))
+        self.tools.register(OrganizeMemoryTool(self.workspace))
         
         # Shell tool
         self.tools.register(ExecTool(working_dir=str(self.workspace)))

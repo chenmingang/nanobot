@@ -28,6 +28,18 @@ List contents of a directory.
 list_dir(path: str) -> str
 ```
 
+### remember
+Save information to long-term memory (MEMORY.md). Use when the user asks to remember something.
+```
+remember(content: str) -> str
+```
+
+### organize_memory
+Organize MEMORY.md: categorize entries into sections (用户信息, 偏好设置, 项目上下文, 重要笔记, 其他), deduplicate, and rewrite for better model context. Use when the user asks to organize/tidy memory.
+```
+organize_memory() -> str
+```
+
 ## Shell Execution
 
 ### exec
@@ -38,7 +50,7 @@ exec(command: str, working_dir: str = None) -> str
 
 **Safety Notes:**
 - Commands have a configurable timeout (default 60s)
-- Dangerous commands are blocked (rm -rf, format, dd, shutdown, etc.)
+- Dangerous commands (rm -rf, format, dd, shutdown, etc.) require user confirmation: when flagged, ask the user, then call exec again with `confirm=true`
 - Output is truncated at 10,000 characters
 - Optional `restrictToWorkspace` config to limit paths
 

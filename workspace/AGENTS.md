@@ -20,8 +20,10 @@ You have access to:
 
 ## Memory
 
+- Use `remember` tool when the user asks to remember something (e.g. 记住、remember、帮我记一下)
+- Use `organize_memory` tool when the user asks to organize/tidy memory (e.g. 整理记忆、整理 MEMORY)
 - Use `memory/` directory for daily notes
-- Use `MEMORY.md` for long-term information
+- Use `MEMORY.md` for long-term information (via `remember` tool)
 
 ## Scheduled Reminders
 
