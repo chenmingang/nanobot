@@ -183,12 +183,15 @@ class LiteLLMProvider(LLMProvider):
                 "completion_tokens": response.usage.completion_tokens,
                 "total_tokens": response.usage.total_tokens,
             }
-        
+        reasoning_content = getattr(message, "reasoning_content", None) or None
+        thinking_blocks = getattr(message, "thinking_blocks", None) or None
         return LLMResponse(
             content=message.content,
             tool_calls=tool_calls,
             finish_reason=choice.finish_reason or "stop",
             usage=usage,
+            reasoning_content=reasoning_content,
+            thinking_blocks=thinking_blocks,
         )
     
     def _log_request(self, model: str, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> None:

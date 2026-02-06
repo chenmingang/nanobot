@@ -179,7 +179,11 @@ class AgentLoop:
                     for tc in response.tool_calls
                 ]
                 messages = self.context.add_assistant_message(
-                    messages, response.content, tool_call_dicts
+                    messages,
+                    response.content,
+                    tool_call_dicts,
+                    reasoning_content=getattr(response, "reasoning_content", None),
+                    thinking_blocks=getattr(response, "thinking_blocks", None),
                 )
                 for tool_call in response.tool_calls:
                     if tool_call.name == "append_daily":
@@ -411,7 +415,11 @@ class AgentLoop:
                     for tc in response.tool_calls
                 ]
                 messages = self.context.add_assistant_message(
-                    messages, response.content, tool_call_dicts
+                    messages,
+                    response.content,
+                    tool_call_dicts,
+                    reasoning_content=getattr(response, "reasoning_content", None),
+                    thinking_blocks=getattr(response, "thinking_blocks", None),
                 )
                 
                 # Execute tools
@@ -534,7 +542,11 @@ class AgentLoop:
                     for tc in response.tool_calls
                 ]
                 messages = self.context.add_assistant_message(
-                    messages, response.content, tool_call_dicts
+                    messages,
+                    response.content,
+                    tool_call_dicts,
+                    reasoning_content=getattr(response, "reasoning_content", None),
+                    thinking_blocks=getattr(response, "thinking_blocks", None),
                 )
                 
                 for tool_call in response.tool_calls:
