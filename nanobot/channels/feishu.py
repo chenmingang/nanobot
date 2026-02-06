@@ -72,6 +72,10 @@ class FeishuChannel(BaseChannel):
         self._ws_client: Any | None = None
         self._ws_task: asyncio.Task | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Track "thinking" messages: chat_id -> (message_id, timer_task)
+        self._thinking_messages: dict[str, tuple[str, asyncio.Task]] = {}
+        # Threshold: delay before showing "thinking..." (ms)
+        self._thinking_threshold_ms = 1000  # 1 seconds
 
     async def _ensure_tenant_access_token(self) -> bool:
         """Ensure we have a tenant_access_token, fetching it if needed."""
@@ -263,6 +267,118 @@ class FeishuChannel(BaseChannel):
             logger.error("Feishu image upload error: {}", e)
             return None
 
+    async def _schedule_thinking_message(self, chat_id: str) -> None:
+        """Schedule a 'thinking' message to be sent after threshold delay.
+        
+        If reply arrives before threshold, the timer is cancelled.
+        """
+        # Cancel existing timer if any
+        existing = self._thinking_messages.pop(chat_id, None)
+        if existing:
+            _, timer_task = existing
+            timer_task.cancel()
+            try:
+                await timer_task
+            except asyncio.CancelledError:
+                pass
+        
+        async def _send_thinking():
+            await asyncio.sleep(self._thinking_threshold_ms / 1000.0)
+            if not self._client or not self._tenant_access_token:
+                return
+            url = "https://open.feishu.cn/open-apis/im/v1/messages"
+            params = {"receive_id_type": "chat_id"}
+            headers = {
+                "Authorization": f"Bearer {self._tenant_access_token}",
+                "Content-Type": "application/json; charset=utf-8",
+            }
+            payload = {
+                "receive_id": chat_id,
+                "msg_type": "text",
+                "content": json.dumps({"text": "正在思考..."}, ensure_ascii=False),
+            }
+            try:
+                resp = await self._client.post(url, params=params, headers=headers, json=payload)
+                if resp.status_code != 200:
+                    logger.warning("Feishu thinking message failed: HTTP {} - {}", resp.status_code, resp.text[:200])
+                    return
+                body = resp.json()
+                if body.get("code") != 0:
+                    logger.warning("Feishu thinking message error: {}", body)
+                    return
+                message_id = (body.get("data") or {}).get("message_id")
+                if message_id:
+                    logger.debug("Feishu thinking message sent: chat_id={} message_id={}", chat_id, message_id)
+                    # Update the entry with message_id
+                    self._thinking_messages[chat_id] = (message_id, timer_task)
+            except asyncio.CancelledError:
+                # Timer cancelled, reply arrived quickly
+                pass
+            except Exception as e:
+                logger.error("Error sending Feishu thinking message: {}", e)
+        
+        timer_task = asyncio.create_task(_send_thinking())
+        # Store placeholder entry (will be updated with message_id when sent)
+        self._thinking_messages[chat_id] = ("", timer_task)
+
+    async def _cancel_thinking_message(self, chat_id: str) -> None:
+        """Cancel scheduled thinking message for a chat_id."""
+        existing = self._thinking_messages.pop(chat_id, None)
+        if existing:
+            _, timer_task = existing
+            timer_task.cancel()
+            try:
+                await timer_task
+            except asyncio.CancelledError:
+                pass
+
+    async def _update_message(self, message_id: str, content: str) -> bool:
+        """Update a Feishu message's content. Returns True if successful."""
+        if not self._client or not self._tenant_access_token:
+            return False
+        url = f"https://open.feishu.cn/open-apis/im/v1/messages/{message_id}"
+        headers = {
+            "Authorization": f"Bearer {self._tenant_access_token}",
+            "Content-Type": "application/json; charset=utf-8",
+        }
+        payload = {
+            "msg_type": "text",
+            "content": json.dumps({"text": content}, ensure_ascii=False),
+        }
+        try:
+            resp = await self._client.put(url, headers=headers, json=payload)
+            if resp.status_code != 200:
+                logger.warning("Feishu update message failed: HTTP {} - {}", resp.status_code, resp.text[:200])
+                return False
+            body = resp.json()
+            if body.get("code") != 0:
+                logger.warning("Feishu update message error: {}", body)
+                return False
+            logger.debug("Feishu message updated: message_id={}", message_id)
+            return True
+        except Exception as e:
+            logger.error("Error updating Feishu message: {}", e)
+            return False
+
+    async def _delete_message(self, message_id: str) -> None:
+        """Delete a Feishu message by message_id."""
+        if not self._client or not self._tenant_access_token:
+            return
+        url = f"https://open.feishu.cn/open-apis/im/v1/messages/{message_id}"
+        headers = {"Authorization": f"Bearer {self._tenant_access_token}"}
+        try:
+            resp = await self._client.delete(url, headers=headers)
+            if resp.status_code != 200:
+                logger.warning("Feishu delete message failed: HTTP {} - {}", resp.status_code, resp.text[:200])
+                return
+            body = resp.json()
+            if body.get("code") != 0:
+                logger.warning("Feishu delete message error: {}", body)
+                return
+            logger.debug("Feishu message deleted: message_id={}", message_id)
+        except Exception as e:
+            logger.error("Error deleting Feishu message: {}", e)
+
     async def _upload_feishu_file(self, path: str) -> str | None:
         """Upload file to Feishu; returns file_key or None."""
         if not self._client or not self._tenant_access_token:
@@ -314,31 +430,67 @@ class FeishuChannel(BaseChannel):
         }
 
         try:
-            # 1) Send text first if present
-            if msg.content and msg.content.strip():
-                logger.info(
-                    "Feishu outbound -> chat_id={} reply_to={} text={}",
-                    msg.chat_id,
-                    msg.reply_to,
-                    _shorten(msg.content or ""),
-                )
-                payload = {
-                    "receive_id": msg.chat_id,
-                    "msg_type": "text",
-                    "content": json.dumps({"text": msg.content.strip()}, ensure_ascii=False),
-                }
-                resp = await self._client.post(url, params=params, headers=headers, json=payload)
-                if resp.status_code != 200:
-                    logger.error("Feishu send failed: HTTP {} - {}", resp.status_code, resp.text[:200])
-                    return
-                body = resp.json()
-                if body.get("code") != 0:
-                    logger.error("Feishu send error: {}", body)
-                    return
-                logger.info(
-                    "Feishu message sent successfully (message_id={})",
-                    (body.get("data") or {}).get("message_id") or "",
-                )
+            # 0) Cancel "thinking" timer and get message_id if "thinking" was already sent
+            thinking_entry = self._thinking_messages.pop(msg.chat_id, None)
+            thinking_message_id = None
+            if thinking_entry:
+                thinking_message_id, timer_task = thinking_entry
+                timer_task.cancel()
+                try:
+                    await timer_task
+                except asyncio.CancelledError:
+                    pass
+
+            # 1) Handle text content
+            has_text = bool(msg.content and msg.content.strip())
+            has_media = bool(msg.media)
+            
+            # If no text and no media, delete thinking message if exists
+            if not has_text and not has_media:
+                if thinking_message_id:
+                    await self._delete_message(thinking_message_id)
+                return
+            
+            if has_text:
+                content = msg.content.strip()
+                # If "thinking" message exists, update it; otherwise send new message
+                if thinking_message_id:
+                    updated = await self._update_message(thinking_message_id, content)
+                    if updated:
+                        logger.info(
+                            "Feishu outbound -> chat_id={} (updated thinking message) text={}",
+                            msg.chat_id,
+                            _shorten(content),
+                        )
+                        # Continue to send media if any
+                    else:
+                        # Update failed, send new message
+                        thinking_message_id = None
+                
+                if not thinking_message_id:
+                    logger.info(
+                        "Feishu outbound -> chat_id={} reply_to={} text={}",
+                        msg.chat_id,
+                        msg.reply_to,
+                        _shorten(content),
+                    )
+                    payload = {
+                        "receive_id": msg.chat_id,
+                        "msg_type": "text",
+                        "content": json.dumps({"text": content}, ensure_ascii=False),
+                    }
+                    resp = await self._client.post(url, params=params, headers=headers, json=payload)
+                    if resp.status_code != 200:
+                        logger.error("Feishu send failed: HTTP {} - {}", resp.status_code, resp.text[:200])
+                        return
+                    body = resp.json()
+                    if body.get("code") != 0:
+                        logger.error("Feishu send error: {}", body)
+                        return
+                    logger.info(
+                        "Feishu message sent successfully (message_id={})",
+                        (body.get("data") or {}).get("message_id") or "",
+                    )
 
             # 2) Send each media (image or file)
             for path in msg.media or []:
@@ -452,14 +604,18 @@ class FeishuChannel(BaseChannel):
                         msg.message_id,
                         _shorten(text),
                     )
-                    fut = asyncio.run_coroutine_threadsafe(
-                        self._handle_message(
+                    # Schedule "thinking" message (delayed)
+                    async def _handle_with_thinking():
+                        await self._schedule_thinking_message(str(chat_id))
+                        await self._handle_message(
                             sender_id=str(sender_id),
                             chat_id=str(chat_id),
                             content=text,
                             media=None,
                             metadata=metadata,
-                        ),
+                        )
+                    fut = asyncio.run_coroutine_threadsafe(
+                        _handle_with_thinking(),
                         self._loop,
                     )
                     fut.add_done_callback(lambda _: None)
@@ -476,14 +632,17 @@ class FeishuChannel(BaseChannel):
                         msg.message_id,
                         _shorten(file_key, 80),
                     )
-                    fut = asyncio.run_coroutine_threadsafe(
-                        self._handle_inbound_media(
+                    async def _handle_file_with_thinking():
+                        await self._schedule_thinking_message(str(chat_id))
+                        await self._handle_inbound_media(
                             sender_id=str(sender_id),
                             chat_id=str(chat_id),
                             metadata=metadata,
                             download_coro=self._download_feishu_file(file_key),
                             label="file",
-                        ),
+                        )
+                    fut = asyncio.run_coroutine_threadsafe(
+                        _handle_file_with_thinking(),
                         self._loop,
                     )
                     fut.add_done_callback(lambda _: None)
@@ -500,14 +659,17 @@ class FeishuChannel(BaseChannel):
                         msg.message_id,
                         _shorten(image_key, 80),
                     )
-                    fut = asyncio.run_coroutine_threadsafe(
-                        self._handle_inbound_media(
+                    async def _handle_image_with_thinking():
+                        await self._schedule_thinking_message(str(chat_id))
+                        await self._handle_inbound_media(
                             sender_id=str(sender_id),
                             chat_id=str(chat_id),
                             metadata=metadata,
                             download_coro=self._download_feishu_image(image_key),
                             label="image",
-                        ),
+                        )
+                    fut = asyncio.run_coroutine_threadsafe(
+                        _handle_image_with_thinking(),
                         self._loop,
                     )
                     fut.add_done_callback(lambda _: None)
