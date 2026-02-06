@@ -382,6 +382,7 @@ class AgentLoop:
         iteration = 0
         final_content = None
         memory_tools_called: set[str] = set()
+        all_tools_called: set[str] = set()
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -417,6 +418,7 @@ class AgentLoop:
                 for tool_call in response.tool_calls:
                     args_str = json.dumps(tool_call.arguments)
                     logger.debug(f"Executing tool: {tool_call.name} with arguments: {args_str}")
+                    all_tools_called.add(tool_call.name)
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
                     if tool_call.name in MEMORY_WRITE_TOOLS:
                         memory_tools_called.add(tool_call.name)
@@ -430,6 +432,18 @@ class AgentLoop:
         
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
+
+        # Tool call notification via channel (e.g. Feishu): notify when tools called, remind when none
+        if msg.channel == "feishu":
+            if all_tools_called:
+                tool_status = f"✓ 已调用工具: {', '.join(sorted(all_tools_called))}"
+            else:
+                tool_status = "⚠️ 提醒：本轮未调用任何工具，模型可能只是描述了操作"
+            await self.bus.publish_outbound(OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=tool_status,
+            ))
 
         # Reindex vector memory after memory write tools (engineering trigger)
         if memory_tools_called:
