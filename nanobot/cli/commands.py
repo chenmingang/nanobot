@@ -217,10 +217,17 @@ def gateway(
     )
 
     # Create cron service
+    # Prefix so the agent says "时间到了 / 提醒：" instead of "X分钟后我会提醒您"
+    _CRON_REMINDER_CONTEXT = (
+        "[系统：这是一条到点的定时提醒。请用「时间到了」或「提醒：」的口吻把下面的内容发给用户，"
+        "不要再说「X分钟后提醒您」或「我会准时提醒」等表示“将要设置”的话。]\n\n"
+    )
+
     async def on_cron_job(job: CronJob) -> str | None:
         """Execute a cron job through the agent."""
+        content = _CRON_REMINDER_CONTEXT + (job.payload.message or "")
         response = await agent.process_direct(
-            job.payload.message,
+            content,
             session_key=f"cron:{job.id}"
         )
         # Optionally deliver to channel
