@@ -40,6 +40,9 @@ if TYPE_CHECKING:
     from nanobot.session.manager import Session
 
 MEMORY_WRITE_TOOLS = frozenset(("remember_core", "append_daily", "organize_memory", "remember"))
+# Tools we invoke in code or do not expose to LLM; hide to avoid diluting useful tools.
+# memory_search: we call _recall_memory() before each turn. web_*: hidden per config.
+TOOLS_HIDDEN_FROM_LLM = frozenset(("memory_search", "web_search", "web_fetch"))
 
 
 class AgentLoop:
@@ -108,6 +111,13 @@ class AgentLoop:
         
         self._running = False
         self._register_default_tools()
+
+    def _get_llm_tool_definitions(self) -> list[dict[str, Any]]:
+        """Tool definitions for the LLM, excluding tools we call in code (e.g. memory_search)."""
+        return [
+            d for d in self.tools.get_definitions()
+            if d.get("function", {}).get("name") not in TOOLS_HIDDEN_FROM_LLM
+        ]
     
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
@@ -163,7 +173,7 @@ class AgentLoop:
         for _ in range(max_flush_iterations):
             response = await self.provider.chat(
                 messages=messages,
-                tools=self.tools.get_definitions(),
+                tools=self._get_llm_tool_definitions(),
                 model=self.model,
                 max_tokens=self.max_tokens,
                 temperature=0.3,
@@ -394,7 +404,7 @@ class AgentLoop:
             # Call LLM
             response = await self.provider.chat(
                 messages=messages,
-                tools=self.tools.get_definitions(),
+                tools=self._get_llm_tool_definitions(),
                 model=self.model,
                 max_tokens=self.max_tokens,
                 temperature=self.temperature
@@ -523,7 +533,7 @@ class AgentLoop:
             
             response = await self.provider.chat(
                 messages=messages,
-                tools=self.tools.get_definitions(),
+                tools=self._get_llm_tool_definitions(),
                 model=self.model,
                 max_tokens=self.max_tokens,
                 temperature=self.temperature
