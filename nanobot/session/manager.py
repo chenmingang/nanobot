@@ -87,9 +87,13 @@ class SessionManager:
         Returns:
             The session.
         """
-        # Check cache
+        # Check cache; invalidate if file was deleted (e.g. by "sessions clear" in another process)
         if key in self._cache:
-            return self._cache[key]
+            path = self._get_session_path(key)
+            if not path.exists():
+                del self._cache[key]
+            else:
+                return self._cache[key]
         
         # Try to load from disk
         session = self._load(key)
