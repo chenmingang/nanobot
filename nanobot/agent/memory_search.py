@@ -3,6 +3,7 @@
 Uses ChromaDB for vector store and sentence-transformers for local embedding.
 """
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -126,7 +127,16 @@ class MemorySearchIndex:
             logger.debug("chromadb not installed; memory search disabled")
             return False
         except Exception as e:
-            logger.warning("ChromaDB init failed: {}", e)
+            msg = str(e)
+            # Strip ANSI escape codes for cleaner logs
+            msg_clean = re.sub(r"\x1b\[[0-9;]*m", "", msg).strip()
+            if "sqlite" in msg_clean.lower() and "3.35" in msg_clean:
+                logger.warning(
+                    "ChromaDB requires sqlite3 >= 3.35.0; your system version is older. "
+                    "Memory semantic search disabled. See https://docs.trychroma.com/troubleshooting#sqlite"
+                )
+            else:
+                logger.warning("ChromaDB init failed: {}", msg_clean or e)
             return False
 
     def _get_paths(self) -> list[Path]:
