@@ -44,6 +44,10 @@ MEMORY_WRITE_TOOLS = frozenset(("remember_core", "append_daily", "organize_memor
 # memory_search: we call _recall_memory() before each turn. web_*: hidden per config.
 TOOLS_HIDDEN_FROM_LLM = frozenset(("memory_search", "web_search", "web_fetch"))
 
+# System instruction when processing cron/scheduled tasks: remind model to say "时间到了" not "X分钟后提醒"
+CRON_SYSTEM_INSTRUCTION = """## Scheduled task (running now)
+This turn is a scheduled task that is **executing now**. If the user message is a reminder to deliver, reply with 「⏰ 时间到了！」 then the reminder content; do NOT say you will remind later or in X minutes. If the user message is a task (e.g. run something, check something), use tools as needed and reply with the result."""
+
 
 class AgentLoop:
     """
@@ -390,6 +394,7 @@ class AgentLoop:
             media=msg.media if msg.media else None,
             compaction_summary=session.compaction_summary,
             memory_recall=memory_recall,
+            cron_instruction=CRON_SYSTEM_INSTRUCTION if msg.channel == "cron" else None,
         )
         
         # Agent loop
@@ -595,17 +600,21 @@ class AgentLoop:
         
         Args:
             content: The message content.
-            session_key: Session identifier.
+            session_key: Session identifier (e.g. "cli:direct", "cron:job_id").
+                        Used as channel:chat_id so cron sessions get channel="cron".
         
         Returns:
             The agent's response.
         """
+        if ":" in session_key:
+            channel, chat_id = session_key.split(":", 1)
+        else:
+            channel, chat_id = "cli", session_key or "direct"
         msg = InboundMessage(
-            channel="cli",
+            channel=channel,
             sender_id="user",
-            chat_id="direct",
+            chat_id=chat_id,
             content=content
         )
-        
         response = await self._process_message(msg)
         return response.content if response else ""

@@ -140,11 +140,13 @@ class SubagentManager:
                         }
                         for tc in response.tool_calls
                     ]
-                    messages.append({
+                    msg_assistant: dict[str, Any] = {
                         "role": "assistant",
                         "content": response.content or "",
                         "tool_calls": tool_call_dicts,
-                    })
+                        "reasoning_content": getattr(response, "reasoning_content", None) or "",
+                    }
+                    messages.append(msg_assistant)
                     
                     # Execute tools
                     for tool_call in response.tool_calls:

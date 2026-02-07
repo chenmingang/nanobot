@@ -133,6 +133,7 @@ Use memory_search to semantically search memory files when you need to recall re
         media: list[str] | None = None,
         compaction_summary: str | None = None,
         memory_recall: str | None = None,
+        cron_instruction: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         Build the complete message list for an LLM call.
@@ -144,6 +145,7 @@ Use memory_search to semantically search memory files when you need to recall re
             media: Optional list of local file paths for images/media.
             compaction_summary: Optional summary of older conversation (short-term memory).
             memory_recall: Optional relevant memories from vector search (engineering recall).
+            cron_instruction: Optional system instruction for cron/scheduled runs (e.g. reminder wording).
 
         Returns:
             List of messages including system prompt.
@@ -156,6 +158,8 @@ Use memory_search to semantically search memory files when you need to recall re
             system_prompt += f"\n\n## Prior conversation summary\n\n{compaction_summary}"
         if memory_recall:
             system_prompt += f"\n\n## Relevant memories (from semantic search)\n\n{memory_recall}"
+        if cron_instruction:
+            system_prompt += f"\n\n{cron_instruction}"
         messages.append({"role": "system", "content": system_prompt})
 
         # History
@@ -236,7 +240,9 @@ Use memory_search to semantically search memory files when you need to recall re
         msg: dict[str, Any] = {"role": "assistant", "content": content or ""}
         if tool_calls:
             msg["tool_calls"] = tool_calls
-        if reasoning_content:
+            # Thinking models (o1, o3, Claude) require reasoning_content when tool_calls present
+            msg["reasoning_content"] = reasoning_content if reasoning_content else ""
+        elif reasoning_content:
             msg["reasoning_content"] = reasoning_content
         if thinking_blocks:
             msg["thinking_blocks"] = thinking_blocks
