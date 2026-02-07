@@ -348,7 +348,10 @@ class FeishuChannel(BaseChannel):
         
         async def _send_thinking():
             await asyncio.sleep(self._thinking_threshold_ms / 1000.0)
-            if not self._client or not self._tenant_access_token:
+            if not self._client:
+                return
+            # Ensure token right before send (may not have been set yet, or may have expired)
+            if not await self._ensure_tenant_access_token() or not self._tenant_access_token:
                 return
             url = "https://open.feishu.cn/open-apis/im/v1/messages"
             params = {"receive_id_type": "chat_id"}
@@ -367,7 +370,19 @@ class FeishuChannel(BaseChannel):
                     logger.warning("Feishu thinking message failed: HTTP {} - {}", resp.status_code, resp.text[:200])
                     return
                 body = resp.json()
-                if body.get("code") != 0:
+                code = body.get("code")
+                if code == 99991663:
+                    # Invalid/expired token: clear cache and retry once
+                    self._tenant_access_token = ""
+                    if await self._ensure_tenant_access_token():
+                        headers["Authorization"] = f"Bearer {self._tenant_access_token}"
+                        resp = await self._client.post(url, params=params, headers=headers, json=payload)
+                        if resp.status_code != 200:
+                            logger.warning("Feishu thinking message retry failed: HTTP {} - {}", resp.status_code, resp.text[:200])
+                            return
+                        body = resp.json()
+                        code = body.get("code")
+                if code != 0:
                     logger.warning("Feishu thinking message error: {}", body)
                     return
                 message_id = (body.get("data") or {}).get("message_id")
