@@ -111,6 +111,10 @@ class AgentsConfig(BaseModel):
 
 class ProviderConfig(BaseModel):
     """LLM provider configuration."""
+    enabled: bool = Field(
+        default=True,
+        description="Whether this provider is enabled. Only enabled providers are considered for API key/base.",
+    )
     api_key: str = ""
     api_base: str | None = None
 
@@ -163,28 +167,30 @@ class Config(BaseSettings):
         return Path(self.agents.defaults.workspace).expanduser()
     
     def get_api_key(self) -> str | None:
-        """Get API key in priority order: OpenRouter > Anthropic > OpenAI > Gemini > Zhipu > SiliconFlow > Groq > vLLM."""
-        return (
-            self.providers.openrouter.api_key or
-            self.providers.anthropic.api_key or
-            self.providers.openai.api_key or
-            self.providers.gemini.api_key or
-            self.providers.zhipu.api_key or
-            self.providers.siliconflow.api_key or
-            self.providers.groq.api_key or
-            self.providers.vllm.api_key or
-            None
-        )
-    
+        """Get API key from first enabled provider with key (priority: OpenRouter > Anthropic > OpenAI > Gemini > Zhipu > SiliconFlow > Groq > vLLM)."""
+        for p in (
+            self.providers.openrouter,
+            self.providers.anthropic,
+            self.providers.openai,
+            self.providers.gemini,
+            self.providers.zhipu,
+            self.providers.siliconflow,
+            self.providers.groq,
+            self.providers.vllm,
+        ):
+            if p.enabled and p.api_key:
+                return p.api_key
+        return None
+
     def get_api_base(self) -> str | None:
-        """Get API base URL if using OpenRouter, Zhipu, SiliconFlow or vLLM."""
-        if self.providers.openrouter.api_key:
+        """Get API base from first enabled provider that has base/key (OpenRouter, Zhipu, SiliconFlow, vLLM)."""
+        if self.providers.openrouter.enabled and self.providers.openrouter.api_key:
             return self.providers.openrouter.api_base or "https://openrouter.ai/api/v1"
-        if self.providers.zhipu.api_key:
+        if self.providers.zhipu.enabled and self.providers.zhipu.api_key:
             return self.providers.zhipu.api_base
-        if self.providers.siliconflow.api_key:
+        if self.providers.siliconflow.enabled and self.providers.siliconflow.api_key:
             return self.providers.siliconflow.api_base or "https://api.siliconflow.cn/v1"
-        if self.providers.vllm.api_base:
+        if self.providers.vllm.enabled and self.providers.vllm.api_base:
             return self.providers.vllm.api_base
         return None
     

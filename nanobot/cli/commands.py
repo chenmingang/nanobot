@@ -789,19 +789,20 @@ def status():
     if config_path.exists():
         console.print(f"Model: {config.agents.defaults.model}")
         
-        # Check API keys
-        has_openrouter = bool(config.providers.openrouter.api_key)
-        has_anthropic = bool(config.providers.anthropic.api_key)
-        has_openai = bool(config.providers.openai.api_key)
-        has_gemini = bool(config.providers.gemini.api_key)
-        has_vllm = bool(config.providers.vllm.api_base)
-        
-        console.print(f"OpenRouter API: {'[green]✓[/green]' if has_openrouter else '[dim]not set[/dim]'}")
-        console.print(f"Anthropic API: {'[green]✓[/green]' if has_anthropic else '[dim]not set[/dim]'}")
-        console.print(f"OpenAI API: {'[green]✓[/green]' if has_openai else '[dim]not set[/dim]'}")
-        console.print(f"Gemini API: {'[green]✓[/green]' if has_gemini else '[dim]not set[/dim]'}")
-        vllm_status = f"[green]✓ {config.providers.vllm.api_base}[/green]" if has_vllm else "[dim]not set[/dim]"
-        console.print(f"vLLM/Local: {vllm_status}")
+        # Check API keys (only enabled providers are used at runtime)
+        def _p(enabled: bool, has_cred: bool, extra: str = "") -> str:
+            e = "[green]enabled[/green]" if enabled else "[dim]disabled[/dim]"
+            c = "[green]✓[/green]" if has_cred else "[dim]not set[/dim]"
+            return f" {e} {c}" + (f" {extra}" if extra else "")
+
+        pro = config.providers
+        console.print("OpenRouter API:" + _p(pro.openrouter.enabled, bool(pro.openrouter.api_key)))
+        console.print("Anthropic API:" + _p(pro.anthropic.enabled, bool(pro.anthropic.api_key)))
+        console.print("OpenAI API:" + _p(pro.openai.enabled, bool(pro.openai.api_key)))
+        console.print("Gemini API:" + _p(pro.gemini.enabled, bool(pro.gemini.api_key)))
+        has_vllm = pro.vllm.enabled and bool(pro.vllm.api_base)
+        vllm_extra = f" {pro.vllm.api_base}" if has_vllm else ""
+        console.print("vLLM/Local:" + _p(pro.vllm.enabled, bool(pro.vllm.api_base), vllm_extra))
 
 
 if __name__ == "__main__":
