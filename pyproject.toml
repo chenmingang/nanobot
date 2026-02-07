@@ -39,6 +39,7 @@ feishu = [
 memory = [
     "chromadb>=0.4.0",
     "sentence-transformers>=2.2.0",
+    "torch>=2.0.0",
 ]
 dev = [
     "pytest>=7.0.0",

@@ -48,10 +48,22 @@ def _chunk_text(text: str, path: str) -> list[tuple[str, str, int]]:
 
 
 _local_model_cache: dict[str, Any] = {}
+_torch_warned = False
 
 
 def _get_embedding_local(text: str, model_name: str) -> list[float] | None:
     """Use sentence-transformers for local embedding. Returns None on failure."""
+    global _torch_warned
+    try:
+        import torch  # noqa: F401
+    except ImportError:
+        if not _torch_warned:
+            _torch_warned = True
+            logger.warning(
+                "PyTorch not installed; memory semantic search disabled. "
+                "Install with: pip install torch  (or pip install nanobot-ai[memory])"
+            )
+        return None
     try:
         from sentence_transformers import SentenceTransformer
         if model_name not in _local_model_cache:
@@ -63,7 +75,14 @@ def _get_embedding_local(text: str, model_name: str) -> list[float] | None:
         logger.warning("sentence-transformers not installed; pip install nanobot-ai[memory]")
         return None
     except Exception as e:
-        logger.warning("Local embedding failed: %s", e)
+        err_str = str(e).lower()
+        if "nn" in err_str or "torch" in err_str or isinstance(e, NameError):
+            logger.warning(
+                "Local embedding failed (PyTorch required): {}. Install with: pip install nanobot-ai[memory]",
+                e,
+            )
+        else:
+            logger.warning("Local embedding failed: {}", e)
         return None
 
 
@@ -107,7 +126,7 @@ class MemorySearchIndex:
             logger.debug("chromadb not installed; memory search disabled")
             return False
         except Exception as e:
-            logger.warning("ChromaDB init failed: %s", e)
+            logger.warning("ChromaDB init failed: {}", e)
             return False
 
     def _get_paths(self) -> list[Path]:
@@ -140,7 +159,7 @@ class MemorySearchIndex:
                 chunks = _chunk_text(text, rel)
                 all_chunks.extend(chunks)
             except Exception as e:
-                logger.warning("Failed to read %s: %s", p, e)
+                logger.warning("Failed to read {}: {}", p, e)
 
         if not all_chunks:
             return 0
@@ -170,7 +189,7 @@ class MemorySearchIndex:
         except Exception:
             pass
         self._collection.add(ids=ids, documents=documents, metadatas=metadatas, embeddings=embeddings)
-        logger.info("Indexed %d chunks from %d files", len(all_chunks), len(paths))
+        logger.info("Indexed {} chunks from {} files", len(all_chunks), len(paths))
         return len(all_chunks)
 
     def search(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
@@ -199,7 +218,7 @@ class MemorySearchIndex:
                 include=["documents", "metadatas", "distances"],
             )
         except Exception as e:
-            logger.warning("ChromaDB query failed: %s", e)
+            logger.warning("ChromaDB query failed: {}", e)
             return []
 
         out: list[dict[str, Any]] = []

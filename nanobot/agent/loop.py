@@ -226,7 +226,7 @@ class AgentLoop:
                 store.append_daily(note)
                 logger.debug("Memory flush: auto-appended minimal daily note (LLM did not call append_daily)")
             except Exception as e:
-                logger.warning("Memory flush: fallback append_daily failed: %s", e)
+                logger.warning("Memory flush: fallback append_daily failed: {}", e)
 
         session.memory_flush_compaction_count = session.compaction_count
         self.sessions.save(session)
@@ -245,14 +245,15 @@ class AgentLoop:
         try:
             n = await asyncio.to_thread(tool.index.index_paths)
             if n > 0:
-                logger.debug("Memory search index updated: %d chunks", n)
+                logger.debug("Memory search index updated: {} chunks", n)
         except Exception as e:
-            logger.warning("Memory search reindex failed: %s", e)
+            logger.warning("Memory search reindex failed: {}", e)
 
     async def _recall_memory(self, query: str, top_k: int = 5) -> str | None:
         """
         Engineering recall: run vector search on memory and return formatted results.
-        Runs in thread pool. Returns None if no results or search unavailable.
+        Called automatically before each user message. Runs in thread pool.
+        Returns None if no results or search unavailable.
         """
         tool = self.tools.get("memory_search")
         if not isinstance(tool, MemorySearchTool):
@@ -262,10 +263,12 @@ class AgentLoop:
         try:
             results = await asyncio.to_thread(tool.index.search, query.strip(), top_k)
         except Exception as e:
-            logger.warning("Memory recall failed: %s", e)
+            logger.warning("Memory recall failed: {}", e)
             return None
         if not results:
+            logger.info("Memory recall: 0 results for query={}", query.strip()[:50])
             return None
+        logger.info("Memory recall: {} results for query={}", len(results), query.strip()[:50])
         parts = []
         for i, r in enumerate(results, 1):
             parts.append(f"[{i}] {r['path']} (line {r['start_line']}, score {r['score']}):\n{r['content']}")
@@ -291,9 +294,9 @@ class AgentLoop:
             if session.memory_flush_compaction_count != session.compaction_count:
                 try:
                     await self._run_memory_flush_turn(session)
-                    logger.info("Pre-compaction memory flush completed for session %s", session.key)
+                    logger.info("Pre-compaction memory flush completed for session {}", session.key)
                 except Exception as e:
-                    logger.warning("Pre-compaction memory flush failed: %s", e)
+                    logger.warning("Pre-compaction memory flush failed: {}", e)
 
         old = session.messages[:-keep]
         recent = session.messages[-keep:]
