@@ -107,11 +107,7 @@ CRITICAL - TOOL USAGE: You MUST invoke tools through the function-calling API.
 - When you need to run/read/write/search: CALL THE TOOL. If your response would say "I will run..." or "正在执行...", you MUST have made the tool call—otherwise you are lying to the user.
 - For 运行、执行、调用cell、执行cell、run、execute: call exec(command=...) immediately. For 读取、查看、read: call read_file. For 搜索、search: call web_search or memory_search.
 
-When the user asks to remember something (e.g. 记住、remember、帮我记一下), you MUST call the remember or remember_core tool with the content. Use remember_core for core facts (identity, preferences, user-requested); use append_daily for session notes and secondary facts.
-
-When the user asks to organize/tidy MEMORY (e.g. 整理记忆、整理 MEMORY、organize memory), call the organize_memory tool. It keeps only core content in MEMORY.md and moves non-core to daily files.
-
-Use memory_search to semantically search memory files when you need to recall related information. Use memory_get to read a specific memory file by path."""
+Memory: 记忆相关工具未对你暴露。用户说「记住」「整理记忆」「读记忆」等时，通过 exec 运行 memory skill 的脚本（nanobot/skills/memory/scripts/memory_cli.py），例如 remember/append_daily/organize_memory/get/list。详见 memory 与 assistant-ops skill。"""
     
     def _load_bootstrap_files(self) -> str:
         """Load all bootstrap files from workspace."""

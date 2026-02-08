@@ -42,7 +42,11 @@ if TYPE_CHECKING:
 MEMORY_WRITE_TOOLS = frozenset(("remember_core", "append_daily", "organize_memory", "remember"))
 # Tools we invoke in code or do not expose to LLM; hide to avoid diluting useful tools.
 # memory_search: we call _recall_memory() before each turn. web_*: hidden per config.
-TOOLS_HIDDEN_FROM_LLM = frozenset(("memory_search", "web_search", "web_fetch"))
+# 发往模型的 tools 排除记忆相关；记忆由工程侧或 skill 脚本/说明使用
+TOOLS_HIDDEN_FROM_LLM = frozenset((
+    "memory_search", "web_search", "web_fetch",
+    "remember", "remember_core", "append_daily", "organize_memory", "memory_get",
+))
 
 # 模型返回空内容时：发给用户的兜底文案；不把该句发给模型，只注入「请继续」让模型继续任务
 EMPTY_CONTENT_FALLBACK_USER = "模型返回了空内容，请重试或换一种问法。"
