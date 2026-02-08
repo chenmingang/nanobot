@@ -426,9 +426,9 @@ class AgentLoop:
             
             # Handle tool calls
             if response.has_tool_calls:
-                # 飞书：合并助手思考和工具调用提示
+                # 所有渠道：合并助手思考和工具调用提示
                 thinking_text = (response.content or "").strip()
-                if msg.channel == "feishu" and thinking_text:
+                if thinking_text:
                     # 收集调用的工具名称
                     tool_names = [tc.name for tc in response.tool_calls]
                     tool_list = ", ".join(tool_names)
@@ -438,7 +438,7 @@ class AgentLoop:
                         chat_id=msg.chat_id,
                         content=f"━━ 💭 助手思考 ━━\n\n{thinking_text}\n\n━━ 🛠️ 工具调用 ━━\n\n✓ 已调用工具: {tool_list}",
                     ))
-                elif msg.channel == "feishu" and not thinking_text:
+                else:
                     # 只有工具调用，没有思考内容
                     tool_names = [tc.name for tc in response.tool_calls]
                     tool_list = ", ".join(tool_names)
@@ -489,14 +489,7 @@ class AgentLoop:
             logger.info("Model returned empty content (finish_reason=stop, no tool_calls)")
             final_content = EMPTY_CONTENT_FALLBACK
 
-        # Tool call notification via channel (e.g. Feishu): 如果未调用任何工具，提醒用户
-        if msg.channel == "feishu" and not all_tools_called:
-            tool_status = "⚠️ 提醒：本轮未调用任何工具，模型可能只是描述了操作"
-            await self.bus.publish_outbound(OutboundMessage(
-                channel=msg.channel,
-                chat_id=msg.chat_id,
-                content=tool_status,
-            ))
+        
 
         # Reindex vector memory after memory write tools (engineering trigger)
         if memory_tools_called:
@@ -576,7 +569,7 @@ class AgentLoop:
             
             if response.has_tool_calls:
                 thinking_text = (response.content or "").strip()
-                if origin_channel == "feishu" and thinking_text:
+                if thinking_text:
                     # 收集调用的工具名称
                     tool_names = [tc.name for tc in response.tool_calls]
                     tool_list = ", ".join(tool_names)
@@ -586,7 +579,7 @@ class AgentLoop:
                         chat_id=origin_chat_id,
                         content=f"━━ 💭 助手思考 ━━\n\n{thinking_text}\n\n━━ 🛠️ 工具调用 ━━\n\n✓ 已调用工具: {tool_list}",
                     ))
-                elif origin_channel == "feishu" and not thinking_text:
+                else:
                     # 只有工具调用，没有思考内容
                     tool_names = [tc.name for tc in response.tool_calls]
                     tool_list = ", ".join(tool_names)
