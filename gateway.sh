@@ -51,24 +51,27 @@ start() {
 
 # 定义函数：停止服务
 stop() {
-    # 检查是否运行
-    if [ ! -f ${PID_FILE} ] || ! ps -p $(cat ${PID_FILE}) > /dev/null 2>&1; then
-        echo -e "\033[33m[警告] ${PROCESS_NAME} 未运行\033[0m"
-        return 1
+    # 先按 PID 文件停止（若存在且进程在）
+    if [ -f ${PID_FILE} ] && ps -p $(cat ${PID_FILE}) > /dev/null 2>&1; then
+        echo -e "\033[32m[信息] 正在停止 ${PROCESS_NAME}（PID: $(cat ${PID_FILE})）...\033[0m"
+        kill $(cat ${PID_FILE}) > /dev/null 2>&1
+        sleep 3
+        if ps -p $(cat ${PID_FILE}) > /dev/null 2>&1; then
+            echo -e "\033[33m[信息] 强制停止 ${PROCESS_NAME}...\033[0m"
+            kill -9 $(cat ${PID_FILE}) > /dev/null 2>&1
+        fi
+        rm -f ${PID_FILE}
     fi
 
-    # 停止进程
-    echo -e "\033[32m[信息] 正在停止 ${PROCESS_NAME}（PID: $(cat ${PID_FILE})）...\033[0m"
-    kill $(cat ${PID_FILE}) > /dev/null 2>&1
-    sleep 3
-
-    # 强制杀死（若未正常停止）
-    if ps -p $(cat ${PID_FILE}) > /dev/null 2>&1; then
-        echo -e "\033[33m[信息] 强制停止 ${PROCESS_NAME}...\033[0m"
-        kill -9 $(cat ${PID_FILE}) > /dev/null 2>&1
+    # 兜底：杀掉所有 nanobot gateway 进程（解决由 start_with_monitor.sh 在 sh/logs 下写 PID、而本脚本在项目根 logs 下读不到导致的“双进程”）
+    if pgrep -f "nanobot gateway" > /dev/null 2>&1; then
+        echo -e "\033[32m[信息] 清理残留的 nanobot gateway 进程...\033[0m"
+        pkill -f "nanobot gateway" 2>/dev/null
+        sleep 2
+        pkill -9 -f "nanobot gateway" 2>/dev/null
     fi
 
-    # 删除PID文件
+    # 清理可能存在的其他位置的 PID 文件（如 sh/logs）
     rm -f ${PID_FILE}
     echo -e "\033[32m[成功] ${PROCESS_NAME} 已停止\033[0m"
 }
