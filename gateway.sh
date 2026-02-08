@@ -7,11 +7,11 @@
 LOG_DIR="./logs"
 # 2. nanobot 执行命令（根据你的环境选择，三选一即可）
 # 方式1：用指定Python3.12版本（最稳妥，避免环境冲突）
-NANOBOT_CMD="python3.12 -m nanobot gateway"
+# NANOBOT_CMD="python3.12 -m nanobot gateway"
 # 方式2：用全局python软链接（你之前配置的，简洁版）
 # NANOBOT_CMD="python -m nanobot gateway"
 # 方式3：若创建了nanobot全局软链接（极简版）
-# NANOBOT_CMD="nanobot gateway"
+NANOBOT_CMD="nanobot gateway"
 # 3. 进程标识（用于区分进程，无需修改）
 PROCESS_NAME="nanobot_gateway"
 # ==================================================================
