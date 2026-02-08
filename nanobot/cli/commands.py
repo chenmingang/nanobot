@@ -211,6 +211,7 @@ def gateway(
         compaction_memory_flush_enabled=config.agents.defaults.compaction.memory_flush.enabled,
         api_key=config.get_api_key(),
         api_base=config.get_api_base(),
+        memory_search_enabled=config.agents.defaults.memory_search.enabled,
         memory_search_local_model=config.agents.defaults.memory_search.local_model,
         memory_search_store_path=config.agents.defaults.memory_search.store_path,
         brave_api_key=config.tools.web.search.api_key or None
@@ -326,6 +327,7 @@ def agent(
         compaction_memory_flush_enabled=config.agents.defaults.compaction.memory_flush.enabled,
         api_key=api_key,
         api_base=api_base,
+        memory_search_enabled=config.agents.defaults.memory_search.enabled,
         memory_search_local_model=config.agents.defaults.memory_search.local_model,
         memory_search_store_path=config.agents.defaults.memory_search.store_path,
         brave_api_key=config.tools.web.search.api_key or None
