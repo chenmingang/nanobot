@@ -44,6 +44,9 @@ MEMORY_WRITE_TOOLS = frozenset(("remember_core", "append_daily", "organize_memor
 # memory_search: we call _recall_memory() before each turn. web_*: hidden per config.
 TOOLS_HIDDEN_FROM_LLM = frozenset(("memory_search", "web_search", "web_fetch"))
 
+# 模型返回空 content 时的兜底回复（保证用户总有回应）
+EMPTY_CONTENT_FALLBACK = "模型返回了空内容，请重试或换一种问法。"
+
 # System instruction when processing cron/scheduled tasks: remind model to say "时间到了" not "X分钟后提醒"
 CRON_SYSTEM_INSTRUCTION = """## Scheduled task (running now)
 This turn is a scheduled task that is **executing now**. If the user message is a reminder to deliver, reply with 「⏰ 时间到了！」 then the reminder content; do NOT say you will remind later or in X minutes. If the user message is a task (e.g. run something, check something), use tools as needed and reply with the result."""
@@ -420,13 +423,16 @@ class AgentLoop:
             
             # Handle tool calls
             if response.has_tool_calls:
-                # 飞书：把助手带 tool_calls 时的思考内容（content）单独发一条，带明显前缀
-                if msg.channel == "feishu" and (response.content or "").strip():
+                # 飞书：把助手带 tool_calls 时的 content（思考/说明）单独发一条
+                thinking_text = (response.content or "").strip()
+                if msg.channel == "feishu" and thinking_text:
                     await self.bus.publish_outbound(OutboundMessage(
                         channel=msg.channel,
                         chat_id=msg.chat_id,
-                        content="💭 【助手思考】\n\n" + (response.content or "").strip(),
+                        content="━━ 💭 助手思考 ━━\n\n" + thinking_text,
                     ))
+                elif msg.channel == "feishu" and not thinking_text:
+                    logger.debug("Feishu: assistant had tool_calls but empty content, skip thinking message")
                 # Add assistant message with tool calls
                 tool_call_dicts = [
                     {
@@ -465,6 +471,9 @@ class AgentLoop:
         
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
+        elif not (final_content or "").strip():
+            logger.info("Model returned empty content (finish_reason=stop, no tool_calls)")
+            final_content = EMPTY_CONTENT_FALLBACK
 
         # Tool call notification via channel (e.g. Feishu): notify when tools called, remind when none
         if msg.channel == "feishu":
@@ -555,11 +564,12 @@ class AgentLoop:
             )
             
             if response.has_tool_calls:
-                if origin_channel == "feishu" and (response.content or "").strip():
+                thinking_text = (response.content or "").strip()
+                if origin_channel == "feishu" and thinking_text:
                     await self.bus.publish_outbound(OutboundMessage(
                         channel=origin_channel,
                         chat_id=origin_chat_id,
-                        content="💭 【助手思考】\n\n" + (response.content or "").strip(),
+                        content="━━ 💭 助手思考 ━━\n\n" + thinking_text,
                     ))
                 tool_call_dicts = [
                     {
@@ -595,7 +605,10 @@ class AgentLoop:
         
         if final_content is None:
             final_content = "Background task completed."
-        
+        elif not (final_content or "").strip():
+            logger.info("Model returned empty content (system message path)")
+            final_content = EMPTY_CONTENT_FALLBACK
+
         if memory_tools_called:
             await self._reindex_memory_search()
         

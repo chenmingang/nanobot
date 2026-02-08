@@ -185,8 +185,24 @@ class LiteLLMProvider(LLMProvider):
             }
         reasoning_content = getattr(message, "reasoning_content", None) or None
         thinking_blocks = getattr(message, "thinking_blocks", None) or None
+        # Normalize content: can be None, str, or list of parts (e.g. OpenAI content array)
+        raw_content = getattr(message, "content", None)
+        if raw_content is None:
+            content_str = None
+        elif isinstance(raw_content, str):
+            content_str = raw_content
+        elif isinstance(raw_content, list):
+            parts = []
+            for part in raw_content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    parts.append(part.get("text") or "")
+                elif isinstance(part, str):
+                    parts.append(part)
+            content_str = "\n".join(parts) if parts else None
+        else:
+            content_str = str(raw_content) if raw_content else None
         return LLMResponse(
-            content=message.content,
+            content=content_str,
             tool_calls=tool_calls,
             finish_reason=choice.finish_reason or "stop",
             usage=usage,
