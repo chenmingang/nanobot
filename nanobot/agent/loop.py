@@ -44,8 +44,9 @@ MEMORY_WRITE_TOOLS = frozenset(("remember_core", "append_daily", "organize_memor
 # memory_search: we call _recall_memory() before each turn. web_*: hidden per config.
 TOOLS_HIDDEN_FROM_LLM = frozenset(("memory_search", "web_search", "web_fetch"))
 
-# 模型返回空 content 时的兜底回复（保证用户总有回应）
-EMPTY_CONTENT_FALLBACK = "模型返回了空内容，请重试或换一种问法。"
+# 模型返回空内容时：发给用户的兜底文案；不把该句发给模型，只注入「请继续」让模型继续任务
+EMPTY_CONTENT_FALLBACK_USER = "模型返回了空内容，请重试或换一种问法。"
+EMPTY_CONTENT_RETRY_PROMPT = "你上轮返回了空内容，请继续完成任务并给出实质性操作或回复。"
 
 # System instruction when processing cron/scheduled tasks: remind model to say "时间到了" not "X分钟后提醒"
 CRON_SYSTEM_INSTRUCTION = """## 定时任务（正在执行中）
@@ -411,6 +412,7 @@ class AgentLoop:
         final_content = None
         memory_tools_called: set[str] = set()
         all_tools_called: set[str] = set()
+        empty_retry_done = False  # 模型返回空内容时只让用户看到兜底一次，并只给模型一次「请继续」机会
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -479,15 +481,30 @@ class AgentLoop:
                         messages, tool_call.id, tool_call.name, result
                     )
             else:
-                # No tool calls, we're done
-                final_content = response.content
-                break
+                # No tool calls
+                content = (response.content or "").strip()
+                if not content:
+                    # 模型返回空内容：把兜底句发给用户，不给模型；注入「请继续」让模型再跑一轮
+                    logger.info("Model returned empty content (finish_reason=stop, no tool_calls)")
+                    if not empty_retry_done:
+                        empty_retry_done = True
+                        await self.bus.publish_outbound(OutboundMessage(
+                            channel=msg.channel,
+                            chat_id=msg.chat_id,
+                            content=EMPTY_CONTENT_FALLBACK_USER,
+                        ))
+                        messages.append({"role": "assistant", "content": response.content or ""})
+                        messages.append({"role": "user", "content": EMPTY_CONTENT_RETRY_PROMPT})
+                        # 不 break，继续下一轮
+                    else:
+                        final_content = EMPTY_CONTENT_FALLBACK_USER
+                        break
+                else:
+                    final_content = response.content
+                    break
         
         if final_content is None:
             final_content = "处理已完成，但没有回复内容。"
-        elif not (final_content or "").strip():
-            logger.info("Model returned empty content (finish_reason=stop, no tool_calls)")
-            final_content = EMPTY_CONTENT_FALLBACK
 
         
 
@@ -624,7 +641,7 @@ class AgentLoop:
             final_content = "后台任务已完成。"
         elif not (final_content or "").strip():
             logger.info("Model returned empty content (system message path)")
-            final_content = EMPTY_CONTENT_FALLBACK
+            final_content = EMPTY_CONTENT_FALLBACK_USER
 
         if memory_tools_called:
             await self._reindex_memory_search()
