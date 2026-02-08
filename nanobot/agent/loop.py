@@ -426,16 +426,27 @@ class AgentLoop:
             
             # Handle tool calls
             if response.has_tool_calls:
-                # 飞书：把助手带 tool_calls 时的 content（思考/说明）单独发一条
+                # 飞书：合并助手思考和工具调用提示
                 thinking_text = (response.content or "").strip()
                 if msg.channel == "feishu" and thinking_text:
+                    # 收集调用的工具名称
+                    tool_names = [tc.name for tc in response.tool_calls]
+                    tool_list = ", ".join(tool_names)
+                    # 合并发送：助手思考 + 工具调用提示
                     await self.bus.publish_outbound(OutboundMessage(
                         channel=msg.channel,
                         chat_id=msg.chat_id,
-                        content="━━ 💭 助手思考 ━━\n\n" + thinking_text,
+                        content=f"━━ 💭 助手思考 ━━\n\n{thinking_text}\n\n━━ 🛠️ 工具调用 ━━\n\n✓ 已调用工具: {tool_list}",
                     ))
                 elif msg.channel == "feishu" and not thinking_text:
-                    logger.debug("Feishu: assistant had tool_calls but empty content, skip thinking message")
+                    # 只有工具调用，没有思考内容
+                    tool_names = [tc.name for tc in response.tool_calls]
+                    tool_list = ", ".join(tool_names)
+                    await self.bus.publish_outbound(OutboundMessage(
+                        channel=msg.channel,
+                        chat_id=msg.chat_id,
+                        content=f"━━ 🛠️ 工具调用 ━━\n\n✓ 已调用工具: {tool_list}",
+                    ))
                 # Add assistant message with tool calls
                 tool_call_dicts = [
                     {
@@ -478,12 +489,9 @@ class AgentLoop:
             logger.info("Model returned empty content (finish_reason=stop, no tool_calls)")
             final_content = EMPTY_CONTENT_FALLBACK
 
-        # Tool call notification via channel (e.g. Feishu): notify when tools called, remind when none
-        if msg.channel == "feishu":
-            if all_tools_called:
-                tool_status = f"✓ 已调用工具: {', '.join(sorted(all_tools_called))}"
-            else:
-                tool_status = "⚠️ 提醒：本轮未调用任何工具，模型可能只是描述了操作"
+        # Tool call notification via channel (e.g. Feishu): 如果未调用任何工具，提醒用户
+        if msg.channel == "feishu" and not all_tools_called:
+            tool_status = "⚠️ 提醒：本轮未调用任何工具，模型可能只是描述了操作"
             await self.bus.publish_outbound(OutboundMessage(
                 channel=msg.channel,
                 chat_id=msg.chat_id,
@@ -569,10 +577,23 @@ class AgentLoop:
             if response.has_tool_calls:
                 thinking_text = (response.content or "").strip()
                 if origin_channel == "feishu" and thinking_text:
+                    # 收集调用的工具名称
+                    tool_names = [tc.name for tc in response.tool_calls]
+                    tool_list = ", ".join(tool_names)
+                    # 合并发送：助手思考 + 工具调用提示
                     await self.bus.publish_outbound(OutboundMessage(
                         channel=origin_channel,
                         chat_id=origin_chat_id,
-                        content="━━ 💭 助手思考 ━━\n\n" + thinking_text,
+                        content=f"━━ 💭 助手思考 ━━\n\n{thinking_text}\n\n━━ 🛠️ 工具调用 ━━\n\n✓ 已调用工具: {tool_list}",
+                    ))
+                elif origin_channel == "feishu" and not thinking_text:
+                    # 只有工具调用，没有思考内容
+                    tool_names = [tc.name for tc in response.tool_calls]
+                    tool_list = ", ".join(tool_names)
+                    await self.bus.publish_outbound(OutboundMessage(
+                        channel=origin_channel,
+                        chat_id=origin_chat_id,
+                        content=f"━━ 🛠️ 工具调用 ━━\n\n✓ 已调用工具: {tool_list}",
                     ))
                 tool_call_dicts = [
                     {
