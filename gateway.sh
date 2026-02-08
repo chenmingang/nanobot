@@ -84,8 +84,9 @@ status() {
 }
 
 # 定义函数：重启服务
+# 使用 stop || true：避免在 set -e 环境下 stop 返回 1（如进程未运行）时脚本提前退出，确保一定会执行 start
 restart() {
-    stop
+    stop || true
     sleep 2
     start
 }
