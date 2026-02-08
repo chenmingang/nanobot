@@ -107,7 +107,7 @@ CRITICAL - TOOL USAGE: You MUST invoke tools through the function-calling API.
 - When you need to run/read/write/search: CALL THE TOOL. If your response would say "I will run..." or "正在执行...", you MUST have made the tool call—otherwise you are lying to the user.
 - For 运行、执行、调用cell、执行cell、run、execute: call exec(command=...) immediately. For 读取、查看、read: call read_file. For 搜索、search: call web_search or memory_search.
 
-Memory: 记忆相关工具未对你暴露。用户说「记住」「整理记忆」「读记忆」等时，通过 exec 运行 memory skill 的脚本（nanobot/skills/memory/scripts/memory_cli.py），例如 remember/append_daily/organize_memory/get/list。详见 memory 与 assistant-ops skill。"""
+Memory: 记忆相关工具未对你暴露。用户说「记住」「整理记忆」「读记忆」等时，通过 exec 运行 assistant-ops 下的脚本（nanobot/skills/assistant-ops/scripts/memory_cli.py），例如 remember/append_daily/organize_memory/get/list。详见 assistant-ops skill。"""
     
     def _load_bootstrap_files(self) -> str:
         """Load all bootstrap files from workspace."""
