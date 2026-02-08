@@ -22,10 +22,9 @@ class OrganizeMemoryTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Organize MEMORY.md: categorize historical entries into sections "
-            "(用户信息/User Information, 偏好设置/Preferences, 项目上下文/Project Context, 重要笔记/Important Notes, 其他/Other), "
-            "deduplicate, and rewrite the file for better model context. "
-            "Use when the user asks to organize/tidy/整理 memory, or when MEMORY.md has grown messy."
+            "整理 MEMORY.md：保留所有要求与内容，仅按分类调整位置与顺序，并优化描述格式。"
+            "分类顺序：用户信息、偏好设置、项目上下文、重要笔记、其他；不移动内容到日期文件、不删除任何条目。"
+            "在用户要求整理/整理记忆时使用。"
         )
 
     @property

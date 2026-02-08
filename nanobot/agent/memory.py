@@ -62,41 +62,61 @@ class MemoryStore:
         ensure_dir(self.memory_file.parent)
         if self.memory_file.exists():
             existing = self.memory_file.read_text(encoding="utf-8")
-            entry = f"\n\n---\n\n## {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n{content.strip()}"
+            # Remove date markers - only store core content without timestamps
+            entry = f"\n\n---\n\n{content.strip()}"
             self.memory_file.write_text(existing + entry, encoding="utf-8")
         else:
-            self.memory_file.write_text(f"# Long-term Memory\n\n{content.strip()}", encoding="utf-8")
+            header = "# Long-term Memory\nThis file stores core information only (user info, preferences).\n"
+            self.memory_file.write_text(header + "\n" + content.strip(), encoding="utf-8")
 
     def append_daily(self, content: str) -> None:
         """Append session notes and secondary facts to memory/YYYY-MM-DD.md."""
         self.append_today(content)
 
-    CORE_SECTIONS = ("用户信息 / User Information", "偏好设置 / Preferences")
+    # 整理时的分类顺序（所有条目保留，仅调整分类与顺序）
+    SECTION_ORDER = (
+        "用户信息 / User Information",
+        "偏好设置 / Preferences",
+        "项目上下文 / Project Context",
+        "重要笔记 / Important Notes",
+        "其他 / Other",
+    )
+
+    def _normalize_entry(self, content: str) -> str:
+        """优化单条描述：统一空白、去掉多余空行，保持结构清晰。"""
+        lines = [line.rstrip() for line in content.strip().split("\n")]
+        out: list[str] = []
+        prev_blank = False
+        for line in lines:
+            is_blank = not line.strip()
+            if is_blank and prev_blank:
+                continue
+            prev_blank = is_blank
+            out.append(line)
+        return "\n".join(out).strip()
 
     def organize_long_term(self) -> str:
         """
-        Organize MEMORY.md: keep only core content (user info, preferences),
-        move non-core entries to dated memory/YYYY-MM-DD.md files.
-        Returns a summary of what was done.
+        整理 MEMORY.md：保留所有要求与内容，仅按分类重新排列顺序，并优化描述格式。
+        不移动、不删除任何条目；不写入日期文件。
         """
         import re
-        from datetime import datetime as dt
 
         if not self.memory_file.exists():
-            return "MEMORY.md does not exist; nothing to organize."
+            return "MEMORY.md 不存在，无需整理。"
 
         raw = self.memory_file.read_text(encoding="utf-8")
 
         categories = [
             ("用户信息 / User Information", ["用户", "姓名", "名字", "我是", "邮箱", "电话", "user", "name", "i am", "email", "phone", "我的"]),
-            ("偏好设置 / Preferences", ["偏好", "喜欢", "不喜欢", "习惯", "希望", "prefer", "like", "dislike", "habit", "want", "常用", "习惯用"]),
-            ("项目上下文 / Project Context", ["项目", "工作", "代码", "开发", "project", "work", "code", "develop", "仓库", "repo"]),
+            ("偏好设置 / Preferences", ["偏好", "喜欢", "不喜欢", "习惯", "希望", "prefer", "like", "dislike", "habit", "want", "常用", "习惯用", "问候", "语音"]),
+            ("项目上下文 / Project Context", ["项目", "工作", "代码", "开发", "project", "work", "code", "develop", "仓库", "repo", "路径", "目录"]),
             ("重要笔记 / Important Notes", ["重要", "注意", "提醒", "记住", "important", "note", "remember", "务必", "必须"]),
         ]
         other_title = "其他 / Other"
 
         blocks = re.split(r"\n---+\n", raw, flags=re.IGNORECASE)
-        entries: list[tuple[str, str, str | None]] = []  # (content, section_key, date_str or None)
+        entries: list[tuple[str, str]] = []  # (content, section_key)
 
         placeholders = {
             "(important facts about the user)",
@@ -111,12 +131,9 @@ class MemoryStore:
                 continue
             lines = block.split("\n")
             content_lines = []
-            entry_date: str | None = None
             for i, line in enumerate(lines):
                 stripped = line.strip()
-                m = re.match(r"^## (\d{4}-\d{2}-\d{2})\s+\d{2}:\d{2}$", stripped) if i == 0 else None
-                if m:
-                    entry_date = m.group(1)
+                if re.match(r"^## \d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}$", stripped):
                     continue
                 if stripped.lower() in placeholders:
                     continue
@@ -126,7 +143,7 @@ class MemoryStore:
             content = "\n".join(content_lines).strip()
             if not content or len(content) < 2:
                 continue
-            skip_phrases = ("# long-term memory", "automatically updated", "this file stores important information")
+            skip_phrases = ("# long-term memory", "automatically updated", "this file stores", "core information only")
             if any(p in content.lower() for p in skip_phrases):
                 continue
 
@@ -136,60 +153,38 @@ class MemoryStore:
                 if any(kw in content_lower or kw in content for kw in keywords):
                     section = cat_title
                     break
-            entries.append((content, section, entry_date))
+            entries.append((content, section))
 
         if not entries:
-            return "No entries to organize; MEMORY.md may be empty or template-only."
+            return "MEMORY.md 无有效条目可整理（可能为空或仅含模板）。"
 
-        core_entries: list[str] = []
-        non_core_to_daily: list[tuple[str, str]] = []  # (content, date_str)
+        # 按分类分组，并去重（同一分类内内容完全一致只保留一条）
+        by_section: dict[str, list[str]] = {s: [] for s in self.SECTION_ORDER}
+        seen_norm: set[str] = set()
+        for content, section in entries:
+            norm = " ".join(content.split()).strip()
+            if norm and norm not in seen_norm:
+                seen_norm.add(norm)
+                by_section.setdefault(section, []).append(content)
 
-        for content, section, entry_date in entries:
-            if section in self.CORE_SECTIONS:
-                core_entries.append(content)
-            else:
-                date_str = entry_date or today_date()
-                non_core_to_daily.append((content, date_str))
-
-        # Deduplicate core entries
-        seen_core: set[str] = set()
-        unique_core: list[str] = []
-        for item in core_entries:
-            norm = " ".join(item.split()).strip()
-            if norm and norm not in seen_core:
-                seen_core.add(norm)
-                unique_core.append(item)
-
-        # Group non-core by date, append to respective daily files
-        by_date: dict[str, list[str]] = {}
-        for content, date_str in non_core_to_daily:
-            by_date.setdefault(date_str, []).append(content)
-
-        moved_count = 0
-        for date_str, items in by_date.items():
-            daily_path = self.memory_dir / f"{date_str}.md"
-            appendix = "\n\n---\n\n".join(items)
-            if daily_path.exists():
-                existing = daily_path.read_text(encoding="utf-8")
-                new_content = existing + "\n\n---\n\n" + appendix
-            else:
-                new_content = f"# {date_str}\n\n{appendix}"
-            daily_path.write_text(new_content, encoding="utf-8")
-            moved_count += len(items)
-
-        # Rewrite MEMORY.md with only core content
+        # 按固定顺序写出，每条做描述优化
         out_parts = [
             "# Long-term Memory\n",
             "This file stores core information only (user info, preferences).\n",
         ]
-        for item in unique_core:
-            out_parts.append(f"{item}\n\n")
+        total = 0
+        for section in self.SECTION_ORDER:
+            items = by_section.get(section, [])
+            if not items:
+                continue
+            out_parts.append(f"## {section}\n\n")
+            for item in items:
+                out_parts.append(self._normalize_entry(item) + "\n\n")
+                total += 1
         out_parts.append("---\n\n*This file is automatically updated by nanobot.*")
 
         self.memory_file.write_text("".join(out_parts).strip() + "\n", encoding="utf-8")
-
-        summary = f"Organized MEMORY.md: kept {len(unique_core)} core entries, moved {moved_count} non-core entries to daily files."
-        return summary
+        return f"已整理 MEMORY.md：保留全部 {total} 条内容，按分类调整顺序并优化描述格式。"
     
     def get_recent_memories(self, days: int = 7) -> str:
         """
