@@ -420,6 +420,13 @@ class AgentLoop:
             
             # Handle tool calls
             if response.has_tool_calls:
+                # 飞书：把助手带 tool_calls 时的思考内容（content）单独发一条，带明显前缀
+                if msg.channel == "feishu" and (response.content or "").strip():
+                    await self.bus.publish_outbound(OutboundMessage(
+                        channel=msg.channel,
+                        chat_id=msg.chat_id,
+                        content="💭 【助手思考】\n\n" + (response.content or "").strip(),
+                    ))
                 # Add assistant message with tool calls
                 tool_call_dicts = [
                     {
@@ -548,6 +555,12 @@ class AgentLoop:
             )
             
             if response.has_tool_calls:
+                if origin_channel == "feishu" and (response.content or "").strip():
+                    await self.bus.publish_outbound(OutboundMessage(
+                        channel=origin_channel,
+                        chat_id=origin_chat_id,
+                        content="💭 【助手思考】\n\n" + (response.content or "").strip(),
+                    ))
                 tool_call_dicts = [
                     {
                         "id": tc.id,
