@@ -126,12 +126,32 @@ class AgentLoop:
         self._running = False
         self._register_default_tools()
 
+    def _tool_name_from_definition(self, d: dict[str, Any]) -> str | None:
+        """从 OpenAI 格式的 tool definition 中取出 name，兼容 function.name 或顶层 name。"""
+        fn = d.get("function")
+        if isinstance(fn, dict) and fn.get("name"):
+            return str(fn["name"])
+        if d.get("name"):
+            return str(d["name"])
+        return None
+
     def _get_llm_tool_definitions(self) -> list[dict[str, Any]]:
-        """Tool definitions for the LLM, excluding tools we call in code (e.g. memory_search)."""
-        return [
-            d for d in self.tools.get_definitions()
-            if d.get("function", {}).get("name") not in TOOLS_HIDDEN_FROM_LLM
-        ]
+        """发往 LLM 的 tool 列表：排除 TOOLS_HIDDEN_FROM_LLM 中的工具（记忆等）。"""
+        all_defs = self.tools.get_definitions()
+        out = []
+        for d in all_defs:
+            name = self._tool_name_from_definition(d)
+            if name is None:
+                out.append(d)  # 无法解析 name 时保留，避免误伤
+                continue
+            if name in TOOLS_HIDDEN_FROM_LLM:
+                logger.debug(f"Hide tool from LLM: {name}")
+                continue
+            out.append(d)
+        logger.debug(
+            f"LLM tools count: {len(out)} (hidden: {len(all_defs) - len(out)}, names: {[self._tool_name_from_definition(x) for x in out]})"
+        )
+        return out
     
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
