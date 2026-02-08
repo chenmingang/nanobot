@@ -48,8 +48,8 @@ TOOLS_HIDDEN_FROM_LLM = frozenset(("memory_search", "web_search", "web_fetch"))
 EMPTY_CONTENT_FALLBACK = "模型返回了空内容，请重试或换一种问法。"
 
 # System instruction when processing cron/scheduled tasks: remind model to say "时间到了" not "X分钟后提醒"
-CRON_SYSTEM_INSTRUCTION = """## Scheduled task (running now)
-This turn is a scheduled task that is **executing now**. If the user message is a reminder to deliver, reply with 「⏰ 时间到了！」 then the reminder content; do NOT say you will remind later or in X minutes. If the user message is a task (e.g. run something, check something), use tools as needed and reply with the result."""
+CRON_SYSTEM_INSTRUCTION = """## 定时任务（正在执行中）
+本轮是一个 **正在执行** 的定时任务。如果用户消息是需要发送的提醒，请回复「⏰ 时间到了！」然后加上提醒内容；不要说你会在X分钟后提醒。如果用户消息是一个任务（例如运行某些东西、检查某些东西），请根据需要使用工具并回复结果。"""
 
 
 class AgentLoop:
@@ -473,7 +473,7 @@ class AgentLoop:
                 break
         
         if final_content is None:
-            final_content = "I've completed processing but have no response to give."
+            final_content = "处理已完成，但没有回复内容。"
         elif not (final_content or "").strip():
             logger.info("Model returned empty content (finish_reason=stop, no tool_calls)")
             final_content = EMPTY_CONTENT_FALLBACK
@@ -607,7 +607,7 @@ class AgentLoop:
                 break
         
         if final_content is None:
-            final_content = "Background task completed."
+            final_content = "后台任务已完成。"
         elif not (final_content or "").strip():
             logger.info("Model returned empty content (system message path)")
             final_content = EMPTY_CONTENT_FALLBACK
