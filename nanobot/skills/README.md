@@ -20,7 +20,6 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 | `assistant-ops` | 助手自身操作：gateway.sh 重启/启停、memory_cli 记忆脚本、nanobot sessions 管理 |
 | `code-assistant` | 代码分析/重构/生成（Java、Python、前端），配套脚本 |
 | `github` | Interact with GitHub using the `gh` CLI |
-| `browser-ops` | 浏览器操作：打开网页、点击、输入、截图等，用 playwright-cli 终端命令 |
 | `summarize` | Summarize URLs, files, and YouTube videos |
 | `tmux` | Remote-control tmux sessions |
 | `weather` | Get weather info using wttr.in and Open-Meteo |
