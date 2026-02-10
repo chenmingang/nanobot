@@ -99,9 +99,18 @@ class LiteLLMProvider(LLMProvider):
         """
         model = model or self.default_model
         
-        # For OpenRouter, prefix model name if not already prefixed
-        if self.is_openrouter and not model.startswith("openrouter/"):
-            model = f"openrouter/{model}"
+        # For OpenRouter, prefix model name if not already prefixed.
+        # LiteLLM strips the first "openrouter/" when sending to the API, so OpenRouter
+        # native models (e.g. pony-alpha, polaris-alpha) must be passed as
+        # "openrouter/openrouter/<id>" so that the API receives "openrouter/<id>".
+        if self.is_openrouter:
+            if not model.startswith("openrouter/"):
+                model = f"openrouter/{model}"
+            # If model is "openrouter/<single>" (no second slash), it's OpenRouter-native:
+            # use double prefix so LiteLLM sends "openrouter/<single>" to the API.
+            after_prefix = model[len("openrouter/"):].strip()
+            if after_prefix and "/" not in after_prefix:
+                model = f"openrouter/openrouter/{after_prefix}"
         
         # For Zhipu/Z.ai, ensure prefix is present
         # Handle cases like "glm-4.7-flash" -> "zai/glm-4.7-flash"
