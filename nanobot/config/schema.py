@@ -86,7 +86,9 @@ class MemorySearchConfig(BaseModel):
 class AgentDefaults(BaseModel):
     """Default agent configuration."""
     workspace: str = "~/.nanobot/workspace"
-    model: str = "anthropic/claude-opus-4-5"
+    # Optional: if omitted/null, model can be resolved from enabled provider's `providers.<name>.model`.
+    # Still defaults to a reasonable hosted model for backward compatibility.
+    model: str | None = "anthropic/claude-opus-4-5"
     max_tokens: int = 8192
     temperature: float = 0.7
     max_tool_iterations: int = 20
@@ -115,6 +117,10 @@ class ProviderConfig(BaseModel):
         default=True,
         description="Whether this provider is enabled. Only enabled providers are considered for API key/base.",
     )
+    model: str = Field(
+        default="",
+        description="Model name for this provider (optional). If empty, fall back to agents.defaults.model.",
+    )
     api_key: str = ""
     api_base: str | None = None
 
@@ -128,6 +134,7 @@ class ProvidersConfig(BaseModel):
     zhipu: ProviderConfig = Field(default_factory=ProviderConfig)
     siliconflow: ProviderConfig = Field(default_factory=ProviderConfig)
     vllm: ProviderConfig = Field(default_factory=ProviderConfig)
+    ollama: ProviderConfig = Field(default_factory=ProviderConfig)
     gemini: ProviderConfig = Field(default_factory=ProviderConfig)
 
 
@@ -165,34 +172,74 @@ class Config(BaseSettings):
     def workspace_path(self) -> Path:
         """Get expanded workspace path."""
         return Path(self.agents.defaults.workspace).expanduser()
-    
-    def get_api_key(self) -> str | None:
-        """Get API key from first enabled provider with key (priority: OpenRouter > Anthropic > OpenAI > Gemini > Zhipu > SiliconFlow > Groq > vLLM)."""
-        for p in (
-            self.providers.openrouter,
-            self.providers.anthropic,
-            self.providers.openai,
-            self.providers.gemini,
-            self.providers.zhipu,
-            self.providers.siliconflow,
-            self.providers.groq,
-            self.providers.vllm,
-        ):
-            if p.enabled and p.api_key:
-                return p.api_key
-        return None
 
-    def get_api_base(self) -> str | None:
-        """Get API base from first enabled provider that has base/key (OpenRouter, Zhipu, SiliconFlow, vLLM)."""
-        if self.providers.openrouter.enabled and self.providers.openrouter.api_key:
-            return self.providers.openrouter.api_base or "https://openrouter.ai/api/v1"
-        if self.providers.zhipu.enabled and self.providers.zhipu.api_key:
-            return self.providers.zhipu.api_base
-        if self.providers.siliconflow.enabled and self.providers.siliconflow.api_key:
-            return self.providers.siliconflow.api_base or "https://api.siliconflow.cn/v1"
-        if self.providers.vllm.enabled and self.providers.vllm.api_base:
-            return self.providers.vllm.api_base
-        return None
+    def get_llm_settings(self) -> tuple[str | None, str | None, str | None, str]:
+        """
+        Resolve the active LLM provider settings based on enabled providers (fixed priority).
+
+        Returns:
+            (provider_name, api_key, api_base, model)
+        """
+        pro = self.providers
+        # Fixed priority: pick the first enabled provider
+        order: list[tuple[str, ProviderConfig]] = [
+            ("openrouter", pro.openrouter),
+            ("anthropic", pro.anthropic),
+            ("openai", pro.openai),
+            ("gemini", pro.gemini),
+            ("zhipu", pro.zhipu),
+            ("siliconflow", pro.siliconflow),
+            ("groq", pro.groq),
+            ("vllm", pro.vllm),
+            ("ollama", pro.ollama),
+        ]
+
+        def _is_usable(provider_name: str, p: ProviderConfig) -> bool:
+            """Whether an enabled provider has enough credentials/config to be usable."""
+            if not p.enabled:
+                return False
+            # Providers that require api_key
+            if provider_name in {"openrouter", "anthropic", "openai", "gemini", "zhipu", "siliconflow", "groq"}:
+                return bool((p.api_key or "").strip())
+            # vLLM / OpenAI-compatible local endpoints require api_base
+            if provider_name == "vllm":
+                return bool((p.api_base or "").strip())
+            # Ollama requires only api_base (optional; has default)
+            if provider_name == "ollama":
+                return True
+            return False
+
+        for name, p in order:
+            if not _is_usable(name, p):
+                continue
+            fallback_model = ((self.agents.defaults.model or "").strip() or "anthropic/claude-opus-4-5")
+            model = (p.model or "").strip() or fallback_model
+            api_base: str | None = p.api_base
+            api_key: str | None = p.api_key or None
+
+            # Provider-specific defaults / requirements
+            if name == "openrouter":
+                api_base = api_base or "https://openrouter.ai/api/v1"
+            elif name == "siliconflow":
+                api_base = api_base or "https://api.siliconflow.cn/v1"
+            elif name == "ollama":
+                api_base = api_base or "http://localhost:11434"
+                api_key = api_key or "dummy"  # Ollama 本地无需鉴权，占位以通过 CLI 检查
+
+            return name, api_key, api_base, model
+
+        # No enabled provider: fall back to agent default model
+        return None, None, None, ((self.agents.defaults.model or "").strip() or "anthropic/claude-opus-4-5")
+    
+    def get_api_key(self, model: str | None = None) -> str | None:
+        """Backward compatible API key resolution (prefer get_llm_settings)."""
+        _, api_key, _, _ = self.get_llm_settings()
+        return api_key
+
+    def get_api_base(self, model: str | None = None) -> str | None:
+        """Backward compatible API base resolution (prefer get_llm_settings)."""
+        _, _, api_base, _ = self.get_llm_settings()
+        return api_base
     
     class Config:
         env_prefix = "NANOBOT_"

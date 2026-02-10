@@ -25,27 +25,32 @@ class LiteLLMProvider(LLMProvider):
         self, 
         api_key: str | None = None, 
         api_base: str | None = None,
-        default_model: str = "anthropic/claude-opus-4-5"
+        default_model: str = "anthropic/claude-opus-4-5",
+        provider_name: str | None = None,
     ):
         super().__init__(api_key, api_base)
         self.default_model = default_model
+        self.provider_name = provider_name
         
-        # Detect OpenRouter by api_key prefix or explicit api_base
+        # Prefer explicit provider_name, fall back to heuristic detection for backward compatibility
         self.is_openrouter = (
-            (api_key and api_key.startswith("sk-or-")) or
-            (api_base and "openrouter" in api_base)
+            provider_name == "openrouter"
+            or (api_key and api_key.startswith("sk-or-"))
+            or (api_base and "openrouter" in api_base)
         )
         
         # Silicon Flow (硅基流动) - OpenAI-compatible, api.siliconflow.cn
-        self.is_siliconflow = bool(api_base) and "siliconflow" in api_base
+        self.is_siliconflow = provider_name == "siliconflow" or (bool(api_base) and "siliconflow" in api_base)
         
-        # Track if using custom endpoint (vLLM, etc.)
-        self.is_vllm = (
-            bool(api_base) and not self.is_openrouter and not self.is_siliconflow
+        # Explicit provider routing (no model/port inference required)
+        self.is_ollama = provider_name == "ollama"
+        self.is_vllm = provider_name == "vllm" or (
+            # Backward compatible: treat arbitrary api_base as vLLM/custom endpoint
+            bool(api_base) and not self.is_openrouter and not self.is_siliconflow and not self.is_ollama
         )
         
-        # Configure LiteLLM based on provider
-        if api_key:
+        # Configure LiteLLM based on provider (Ollama 无需设置 API key)
+        if api_key and not (self.is_ollama and api_key == "dummy"):
             if self.is_openrouter:
                 # OpenRouter mode - set key
                 os.environ["OPENROUTER_API_KEY"] = api_key
@@ -99,6 +104,24 @@ class LiteLLMProvider(LLMProvider):
         """
         model = model or self.default_model
         
+        # Provider-specific model rewriting based on explicit provider_name.
+        # Keep this minimal: LiteLLM expects some providers to be prefixed.
+        if self.provider_name == "ollama":
+            # Ollama expects ollama/ or ollama_chat/ prefix.
+            # If user configured bare model name like "qwen3:4b", default to ollama_chat/ for best chat quality.
+            if not (model.startswith("ollama/") or model.startswith("ollama_chat/")):
+                model = f"ollama_chat/{model}"
+        elif self.provider_name == "openrouter":
+            # Prefer explicit openrouter/ prefix; LiteLLM strips first "openrouter/" when sending.
+            if not model.startswith("openrouter/"):
+                model = f"openrouter/{model}"
+        elif self.provider_name == "vllm":
+            # vLLM uses hosted_vllm/ prefix per LiteLLM docs (handled below).
+            pass
+        elif self.provider_name == "siliconflow":
+            # SiliconFlow uses openai/ prefix (handled below).
+            pass
+
         # For OpenRouter, prefix model name if not already prefixed.
         # LiteLLM strips the first "openrouter/" when sending to the API, so OpenRouter
         # native models (e.g. pony-alpha, polaris-alpha) must be passed as
@@ -121,13 +144,17 @@ class LiteLLMProvider(LLMProvider):
         ):
             model = f"zai/{model}"
         
-        # For vLLM, use hosted_vllm/ prefix per LiteLLM docs
-        # Convert openai/ prefix to hosted_vllm/ if user specified it
-        if self.is_vllm:
+        # For vLLM, use hosted_vllm/ prefix per LiteLLM docs (Ollama uses ollama/ or ollama_chat/)
+        if self.is_vllm and not (model.startswith("ollama/") or model.startswith("ollama_chat/")):
             model = f"hosted_vllm/{model}"
         
-        # Silicon Flow: OpenAI-compatible API, must use openai/ prefix so LiteLLM picks the provider
-        if self.is_siliconflow and not model.startswith("openai/"):
+        # Silicon Flow: OpenAI-compatible API, must use openai/ prefix（不覆盖 Ollama 模型）
+        if (
+            self.is_siliconflow
+            and not model.startswith("openai/")
+            and not model.startswith("ollama/")
+            and not model.startswith("ollama_chat/")
+        ):
             model = f"openai/{model}"
         
         # For Gemini, ensure gemini/ prefix if not already present

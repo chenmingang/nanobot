@@ -178,10 +178,8 @@ def gateway(
     # Create components
     bus = MessageBus()
     
-    # Create provider (supports OpenRouter, Anthropic, OpenAI, Bedrock)
-    api_key = config.get_api_key()
-    api_base = config.get_api_base()
-    model = config.agents.defaults.model
+    # Create provider (resolved by enabled provider priority)
+    provider_name, api_key, api_base, model = config.get_llm_settings()
     is_bedrock = model.startswith("bedrock/")
 
     if not api_key and not is_bedrock:
@@ -192,7 +190,8 @@ def gateway(
     provider = LiteLLMProvider(
         api_key=api_key,
         api_base=api_base,
-        default_model=config.agents.defaults.model
+        default_model=model,
+        provider_name=provider_name
     )
     
     # Create agent
@@ -209,8 +208,8 @@ def gateway(
         compaction_threshold=config.agents.defaults.compaction.threshold_messages,
         compaction_keep_recent=config.agents.defaults.compaction.keep_recent,
         compaction_memory_flush_enabled=config.agents.defaults.compaction.memory_flush.enabled,
-        api_key=config.get_api_key(),
-        api_base=config.get_api_base(),
+        api_key=api_key,
+        api_base=api_base,
         memory_search_enabled=config.agents.defaults.memory_search.enabled,
         memory_search_local_model=config.agents.defaults.memory_search.local_model,
         memory_search_store_path=config.agents.defaults.memory_search.store_path,
@@ -299,10 +298,7 @@ def agent(
     from nanobot.agent.loop import AgentLoop
     
     config = load_config()
-    
-    api_key = config.get_api_key()
-    api_base = config.get_api_base()
-    model = config.agents.defaults.model
+    provider_name, api_key, api_base, model = config.get_llm_settings()
     is_bedrock = model.startswith("bedrock/")
 
     if not api_key and not is_bedrock:
@@ -313,7 +309,8 @@ def agent(
     provider = LiteLLMProvider(
         api_key=api_key,
         api_base=api_base,
-        default_model=config.agents.defaults.model
+        default_model=model,
+        provider_name=provider_name
     )
     
     agent_loop = AgentLoop(
@@ -805,6 +802,8 @@ def status():
         has_vllm = pro.vllm.enabled and bool(pro.vllm.api_base)
         vllm_extra = f" {pro.vllm.api_base}" if has_vllm else ""
         console.print("vLLM/Local:" + _p(pro.vllm.enabled, bool(pro.vllm.api_base), vllm_extra))
+        ollama_base = pro.ollama.api_base or "http://localhost:11434"
+        console.print("Ollama:" + _p(pro.ollama.enabled, True if pro.ollama.enabled else False, ollama_base if pro.ollama.enabled else ""))
 
 
 if __name__ == "__main__":

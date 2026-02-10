@@ -162,6 +162,45 @@ nanobot agent -m "用我的本地模型打个招呼！"
 > [!TIP]
 > 本地服务若不鉴权，`apiKey` 填任意非空字符串即可。
 
+## 🦙 Ollama（本地模型）
+
+通过 [Ollama](https://ollama.com) 在本地运行模型，无需 API Key。
+
+**1. 安装并启动 Ollama**
+
+```bash
+# 安装后运行（默认 http://localhost:11434）
+ollama serve
+ollama pull llama3.2
+```
+
+**2. 配置**（`~/.nanobot/config.json`）
+
+```json
+{
+  "providers": {
+    "ollama": {
+      "enabled": true,
+      "apiBase": "http://localhost:11434"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": "ollama_chat/llama3.2"
+    }
+  }
+}
+```
+
+- **模型名**：使用 `ollama/模型名` 或 `ollama_chat/模型名`（推荐 `ollama_chat/` 对话效果更好），如 `ollama_chat/llama3.2`、`ollama/qwen2.5`。
+- **apiBase**：不填默认为 `http://localhost:11434`。
+
+**3. 对话**
+
+```bash
+nanobot agent -m "用本地 Ollama 打个招呼！"
+```
+
 ## 💬 聊天渠道
 
 通过 Telegram 或飞书/WhatsApp 与 nanobot 对话，随时随地使用。
@@ -272,6 +311,7 @@ nanobot gateway
 
 - **根级 `model`**（可选）：若设置，将覆盖 `agents.defaults.model`，用于快速切换模型。
 - **`agents.defaults.model`**：默认使用的 LLM 模型（如 `anthropic/claude-opus-4-5`、`openai/gpt-4o`）。
+- **`providers.<name>.model`**（推荐）：把模型写在具体 provider 内；运行时会选择**第一个 enabled 的 provider**，并优先使用该 provider 的 `model`（未填则回退到 `agents.defaults.model`）。
 
 ### 渠道提供商（Provider）
 
@@ -288,6 +328,7 @@ nanobot gateway
 | `groq` | LLM + **语音转写**（Whisper） | [console.groq.com](https://console.groq.com) |
 | `gemini` | LLM（Gemini 直连） | [aistudio.google.com](https://aistudio.google.com) |
 | `vllm` | 本地/自建 OpenAI 兼容服务 | 无需 key，填 `apiBase` 即可 |
+| `ollama` | 本地 Ollama | 无需 key，填 `apiBase`（默认 `http://localhost:11434`） |
 
 每个 provider 支持 **`enabled`**（默认 true），设为 false 即可禁用该渠道而不删配置。
 
@@ -306,15 +347,23 @@ nanobot gateway
   "providers": {
     "openrouter": {
       "enabled": true,
-      "apiKey": "sk-or-v1-xxx"
+      "apiKey": "sk-or-v1-xxx",
+      "model": "anthropic/claude-opus-4-5"
     },
     "anthropic": {
       "enabled": false,
-      "apiKey": ""
+      "apiKey": "",
+      "model": ""
     },
     "groq": {
       "enabled": true,
-      "apiKey": "gsk_xxx"
+      "apiKey": "gsk_xxx",
+      "model": "groq/llama-3.1-70b-versatile"
+    },
+    "ollama": {
+      "enabled": false,
+      "apiBase": "http://localhost:11434",
+      "model": "ollama_chat/llama3.2"
     }
   },
   "channels": {
