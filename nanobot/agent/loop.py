@@ -452,26 +452,33 @@ class AgentLoop:
             
             # Handle tool calls
             if response.has_tool_calls:
-                # 所有渠道：合并助手思考和工具调用提示
+                # 工具调用简短说明：名称 + 截断后的参数预览
+                _MAX_ARG_PREVIEW = 120
+
+                def _tool_call_preview(tc: Any) -> str:
+                    try:
+                        raw = json.dumps(tc.arguments, ensure_ascii=False)
+                    except (TypeError, ValueError):
+                        raw = str(tc.arguments)[:_MAX_ARG_PREVIEW]
+                    if len(raw) > _MAX_ARG_PREVIEW:
+                        raw = raw[:_MAX_ARG_PREVIEW].rstrip() + "…"
+                    return f"• {tc.name}: {raw}" if raw else f"• {tc.name}"
+
+                tool_previews = "\n".join(_tool_call_preview(tc) for tc in response.tool_calls)
                 thinking_text = (response.content or "").strip()
                 if thinking_text:
-                    # 收集调用的工具名称
-                    tool_names = [tc.name for tc in response.tool_calls]
-                    tool_list = ", ".join(tool_names)
-                    # 合并发送：助手思考 + 工具调用提示
+                    # 合并发送：助手思考 + 工具调用提示（含参数预览）
                     await self.bus.publish_outbound(OutboundMessage(
                         channel=msg.channel,
                         chat_id=msg.chat_id,
-                        content=f"━━ 💭 助手思考 ━━\n\n{thinking_text}\n\n━━ 🛠️ 工具调用 ━━\n\n✓ 已调用工具: {tool_list}",
+                        content=f"━━ 💭 助手思考 ━━\n\n{thinking_text}\n\n━━ 🛠️ 工具调用 ━━\n\n{tool_previews}",
                     ))
                 else:
                     # 只有工具调用，没有思考内容
-                    tool_names = [tc.name for tc in response.tool_calls]
-                    tool_list = ", ".join(tool_names)
                     await self.bus.publish_outbound(OutboundMessage(
                         channel=msg.channel,
                         chat_id=msg.chat_id,
-                        content=f"━━ 🛠️ 工具调用 ━━\n\n✓ 已调用工具: {tool_list}",
+                        content=f"━━ 🛠️ 工具调用 ━━\n\n{tool_previews}",
                     ))
                 # Add assistant message with tool calls
                 tool_call_dicts = [
