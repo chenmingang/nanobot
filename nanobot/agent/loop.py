@@ -48,6 +48,9 @@ TOOLS_HIDDEN_FROM_LLM = frozenset((
     "remember", "remember_core", "append_daily", "organize_memory", "memory_get",
 ))
 
+# 工具调用参数预览最大长度
+MAX_ARG_PREVIEW = 120
+
 # 模型返回空内容时：发给用户的兜底文案；不把该句发给模型，只注入「请继续」让模型继续任务
 EMPTY_CONTENT_FALLBACK_USER = "模型返回了空内容，请重试或换一种问法。"
 EMPTY_CONTENT_RETRY_PROMPT = "你上轮返回了空内容，请继续完成任务并给出实质性操作或回复。"
@@ -189,6 +192,53 @@ class AgentLoop:
         spawn_tool = SpawnTool(manager=self.subagents)
         self.tools.register(spawn_tool)
 
+    def _format_tool_preview(self, tc: Any) -> str:
+        """格式化单个工具调用为预览字符串（名称 + 截断参数）。"""
+        try:
+            raw = json.dumps(tc.arguments, ensure_ascii=False)
+        except (TypeError, ValueError):
+            raw = str(tc.arguments)[:MAX_ARG_PREVIEW]
+        if len(raw) > MAX_ARG_PREVIEW:
+            raw = raw[:MAX_ARG_PREVIEW].rstrip() + "…"
+        return f"• {tc.name}: {raw}" if raw else f"• {tc.name}"
+
+    def _format_tool_previews(self, tool_calls: list[Any]) -> str:
+        """格式化多个工具调用为预览字符串。"""
+        return "\n".join(self._format_tool_preview(tc) for tc in tool_calls)
+
+    def _build_tool_call_dicts(self, tool_calls: list[Any]) -> list[dict[str, Any]]:
+        """将工具调用列表转换为 OpenAI 格式的字典列表。"""
+        return [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.name,
+                    "arguments": json.dumps(tc.arguments)
+                }
+            }
+            for tc in tool_calls
+        ]
+
+    async def _send_tool_call_notification(
+        self,
+        channel: str,
+        chat_id: str,
+        tool_calls: list[Any],
+        thinking_text: str | None = None
+    ) -> None:
+        """发送工具调用通知给用户。"""
+        tool_previews = self._format_tool_previews(tool_calls)
+        if thinking_text and thinking_text.strip():
+            content = f"━━ 💭 助手思考 ━━\n\n{thinking_text.strip()}\n\n━━ 🛠️ 工具调用 ━━\n\n{tool_previews}"
+        else:
+            content = f"━━ 🛠️ 工具调用 ━━\n\n{tool_previews}"
+        await self.bus.publish_outbound(OutboundMessage(
+            channel=channel,
+            chat_id=chat_id,
+            content=content,
+        ))
+
     async def _run_memory_flush_turn(self, session: "Session") -> None:
         """
         Pre-compaction memory flush: run a silent agent turn to store durable
@@ -215,14 +265,7 @@ class AgentLoop:
             )
 
             if response.has_tool_calls:
-                tool_call_dicts = [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
-                    }
-                    for tc in response.tool_calls
-                ]
+                tool_call_dicts = self._build_tool_call_dicts(response.tool_calls)
                 messages = self.context.add_assistant_message(
                     messages,
                     response.content,
@@ -452,46 +495,12 @@ class AgentLoop:
             
             # Handle tool calls
             if response.has_tool_calls:
-                # 工具调用简短说明：名称 + 截断后的参数预览
-                _MAX_ARG_PREVIEW = 120
-
-                def _tool_call_preview(tc: Any) -> str:
-                    try:
-                        raw = json.dumps(tc.arguments, ensure_ascii=False)
-                    except (TypeError, ValueError):
-                        raw = str(tc.arguments)[:_MAX_ARG_PREVIEW]
-                    if len(raw) > _MAX_ARG_PREVIEW:
-                        raw = raw[:_MAX_ARG_PREVIEW].rstrip() + "…"
-                    return f"• {tc.name}: {raw}" if raw else f"• {tc.name}"
-
-                tool_previews = "\n".join(_tool_call_preview(tc) for tc in response.tool_calls)
-                thinking_text = (response.content or "").strip()
-                if thinking_text:
-                    # 合并发送：助手思考 + 工具调用提示（含参数预览）
-                    await self.bus.publish_outbound(OutboundMessage(
-                        channel=msg.channel,
-                        chat_id=msg.chat_id,
-                        content=f"━━ 💭 助手思考 ━━\n\n{thinking_text}\n\n━━ 🛠️ 工具调用 ━━\n\n{tool_previews}",
-                    ))
-                else:
-                    # 只有工具调用，没有思考内容
-                    await self.bus.publish_outbound(OutboundMessage(
-                        channel=msg.channel,
-                        chat_id=msg.chat_id,
-                        content=f"━━ 🛠️ 工具调用 ━━\n\n{tool_previews}",
-                    ))
+                # 发送工具调用通知
+                await self._send_tool_call_notification(
+                    msg.channel, msg.chat_id, response.tool_calls, response.content
+                )
                 # Add assistant message with tool calls
-                tool_call_dicts = [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": json.dumps(tc.arguments)  # Must be JSON string
-                        }
-                    }
-                    for tc in response.tool_calls
-                ]
+                tool_call_dicts = self._build_tool_call_dicts(response.tool_calls)
                 messages = self.context.add_assistant_message(
                     messages,
                     response.content,
@@ -616,45 +625,11 @@ class AgentLoop:
             )
             
             if response.has_tool_calls:
-                # 工具调用简短说明：名称 + 截断后的参数预览
-                _MAX_ARG_PREVIEW = 120
-
-                def _tool_call_preview(tc: Any) -> str:
-                    try:
-                        raw = json.dumps(tc.arguments, ensure_ascii=False)
-                    except (TypeError, ValueError):
-                        raw = str(tc.arguments)[:_MAX_ARG_PREVIEW]
-                    if len(raw) > _MAX_ARG_PREVIEW:
-                        raw = raw[:_MAX_ARG_PREVIEW].rstrip() + "…"
-                    return f"• {tc.name}: {raw}" if raw else f"• {tc.name}"
-
-                tool_previews = "\n".join(_tool_call_preview(tc) for tc in response.tool_calls)
-                thinking_text = (response.content or "").strip()
-                if thinking_text:
-                    # 合并发送：助手思考 + 工具调用提示（含参数预览）
-                    await self.bus.publish_outbound(OutboundMessage(
-                        channel=origin_channel,
-                        chat_id=origin_chat_id,
-                        content=f"━━ 💭 助手思考 ━━\n\n{thinking_text}\n\n━━ 🛠️ 工具调用 ━━\n\n{tool_previews}",
-                    ))
-                else:
-                    # 只有工具调用，没有思考内容
-                    await self.bus.publish_outbound(OutboundMessage(
-                        channel=origin_channel,
-                        chat_id=origin_chat_id,
-                        content=f"━━ 🛠️ 工具调用 ━━\n\n{tool_previews}",
-                    ))
-                tool_call_dicts = [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": json.dumps(tc.arguments)
-                        }
-                    }
-                    for tc in response.tool_calls
-                ]
+                # 发送工具调用通知
+                await self._send_tool_call_notification(
+                    origin_channel, origin_chat_id, response.tool_calls, response.content
+                )
+                tool_call_dicts = self._build_tool_call_dicts(response.tool_calls)
                 messages = self.context.add_assistant_message(
                     messages,
                     response.content,
