@@ -15,6 +15,7 @@ from nanobot.agent.compaction import (
     MEMORY_FLUSH_PROMPT,
     MEMORY_FLUSH_SYSTEM,
     NO_REPLY_TOKEN,
+    select_messages_for_compaction,
     summarize_messages,
 )
 from nanobot.agent.context import ContextBuilder
@@ -325,7 +326,7 @@ class AgentLoop:
         except Exception as e:
             logger.warning("Memory search reindex failed: {}", e)
 
-    async def _recall_memory(self, query: str, top_k: int = 5) -> str | None:
+    async def _recall_memory(self, query: str, top_k: int = 3, min_score: float = 0.3) -> str | None:
         """
         Engineering recall: run vector search on memory and return formatted results.
         Called automatically before each user message. Runs in thread pool.
@@ -336,6 +337,12 @@ class AgentLoop:
             return None
         if not query or not query.strip():
             return None
+        
+        memory_keywords = ["记忆", "记住", "之前", "上次", "历史", "memory", "remember", "previous", "last", "history"]
+        query_lower = query.lower()
+        if not any(kw in query_lower for kw in memory_keywords):
+            return None
+        
         try:
             results = await asyncio.to_thread(tool.index.search, query.strip(), top_k)
         except Exception as e:
@@ -344,10 +351,24 @@ class AgentLoop:
         if not results:
             logger.info("Memory recall: 0 results for query={}", query.strip()[:50])
             return None
-        logger.info("Memory recall: {} results for query={}", len(results), query.strip()[:50])
+        
+        filtered = [r for r in results if r.get("score", 0) >= min_score]
+        if not filtered:
+            return None
+        
+        logger.info("Memory recall: {} results for query={}", len(filtered), query.strip()[:50])
+        
+        max_chars = 2000
         parts = []
-        for i, r in enumerate(results, 1):
-            parts.append(f"[{i}] {r['path']} (line {r['start_line']}, score {r['score']}):\n{r['content']}")
+        total_chars = 0
+        for i, r in enumerate(filtered, 1):
+            content = r["content"][:500]
+            line = f"[{i}] {r['path']} (score {r['score']:.2f}):\n{content}"
+            if total_chars + len(line) > max_chars:
+                break
+            parts.append(line)
+            total_chars += len(line)
+        
         return "\n\n".join(parts)
 
     async def _maybe_compact_session(self, session: "Session") -> None:
@@ -361,9 +382,6 @@ class AgentLoop:
         n = len(session.messages)
         if n <= self.compaction_threshold:
             return
-        keep = self.compaction_keep_recent
-        if keep >= n:
-            return
 
         # Pre-compaction memory flush: once per compaction cycle
         if self.compaction_memory_flush_enabled:
@@ -374,28 +392,36 @@ class AgentLoop:
                 except Exception as e:
                     logger.warning("Pre-compaction memory flush failed: {}", e)
 
-        old = session.messages[:-keep]
-        recent = session.messages[-keep:]
+        # 智能选择要压缩的消息
+        to_compact, to_keep = select_messages_for_compaction(
+            session.messages,
+            keep_recent=self.compaction_keep_recent,
+            keep_key_messages=True,
+            max_tokens=8000,
+        )
+
+        if not to_compact:
+            return
 
         # Include prior summary as context for merged summarization
         prior = session.compaction_summary
         if prior:
-            old = [{"role": "user", "content": f"Prior summary: {prior}"}] + old
+            to_compact = [{"role": "user", "content": f"Prior summary: {prior}"}] + to_compact
 
         try:
             new_summary = await summarize_messages(
-                self.provider, old, model=self.model, max_tokens=1500
+                self.provider, to_compact, model=self.model, max_tokens=1000
             )
             if new_summary:
                 session.compaction_summary = new_summary
         except Exception as e:
             logger.warning(f"Compaction summarization failed: {e}")
 
-        session.messages = recent
+        session.messages = to_keep
         session.compaction_count = (session.compaction_count or 0) + 1
         session.updated_at = datetime.now()
         self.sessions.save(session)
-        logger.info(f"Compacted session {session.key}: {n} -> {keep} messages")
+        logger.info(f"Compacted session {session.key}: {n} -> {len(to_keep)} messages")
 
     async def run(self) -> None:
         """Run the agent loop, processing messages from the bus."""

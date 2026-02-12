@@ -19,21 +19,23 @@ class ExecTool(Tool):
         deny_patterns: list[str] | None = None,
         allow_patterns: list[str] | None = None,
         restrict_to_workspace: bool = False,
+        max_output_chars: int = 8000,
     ):
         self.timeout = timeout
         self.working_dir = working_dir
         self.deny_patterns = deny_patterns or [
-            r"\brm\s+-[rf]{1,2}\b",          # rm -r, rm -rf, rm -fr
-            r"\bdel\s+/[fq]\b",              # del /f, del /q
-            r"\brmdir\s+/s\b",               # rmdir /s
-            r"\b(format|mkfs|diskpart)\b",   # disk operations
-            r"\bdd\s+if=",                   # dd
-            r">\s*/dev/sd",                  # write to disk
-            r"\b(shutdown|reboot|poweroff)\b",  # system power
-            r":\(\)\s*\{.*\};\s*:",          # fork bomb
+            r"\brm\s+-[rf]{1,2}\b",
+            r"\bdel\s+/[fq]\b",
+            r"\brmdir\s+/s\b",
+            r"\b(format|mkfs|diskpart)\b",
+            r"\bdd\s+if=",
+            r">\s*/dev/sd",
+            r"\b(shutdown|reboot|poweroff)\b",
+            r":\(\)\s*\{.*\};\s*:",
         ]
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
+        self.max_output_chars = max_output_chars
     
     @property
     def name(self) -> str:
@@ -41,10 +43,7 @@ class ExecTool(Tool):
     
     @property
     def description(self) -> str:
-        return (
-            "Execute a shell command and return its output. Use this when the user asks to run/execute a command "
-            "(e.g. 运行、执行、帮我执行、run xxx). Always call exec to run the command—do NOT just reply with the command text."
-        )
+        return "Execute shell command. Returns output."
     
     @property
     def parameters(self) -> dict[str, Any]:
@@ -53,20 +52,63 @@ class ExecTool(Tool):
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "The shell command to execute"
+                    "description": "Shell command to execute"
                 },
                 "working_dir": {
                     "type": "string",
-                    "description": "Optional working directory for the command"
+                    "description": "Optional working directory"
                 },
                 "confirm": {
                     "type": "boolean",
-                    "description": "Set to true to confirm execution of a command that matches dangerous patterns. When the command is flagged, ask the user for confirmation, then call exec again with confirm=true.",
+                    "description": "Set true to confirm dangerous commands",
                     "default": False,
                 }
             },
             "required": ["command"]
         }
+    
+    def _smart_truncate(self, text: str, max_chars: int) -> str:
+        """智能截断：保留开头、结尾和关键行（错误、警告）。"""
+        if len(text) <= max_chars:
+            return text
+        
+        lines = text.split("\n")
+        if len(lines) <= 20:
+            return text[:max_chars] + f"\n... (truncated, {len(text) - max_chars} chars)"
+        
+        key_patterns = ["error", "warning", "fail", "exception", "错误", "警告", "失败"]
+        key_lines = []
+        other_lines = []
+        
+        for i, line in enumerate(lines):
+            lower = line.lower()
+            if any(p in lower for p in key_patterns):
+                key_lines.append((i, line))
+            else:
+                other_lines.append((i, line))
+        
+        head_count = 5
+        tail_count = 5
+        head_lines = lines[:head_count]
+        tail_lines = lines[-tail_count:] if len(lines) > head_count + tail_count else []
+        
+        result_parts = ["## Output (head)\n"]
+        result_parts.extend(head_lines)
+        
+        if key_lines:
+            result_parts.append("\n## Key lines\n")
+            for i, line in key_lines[:10]:
+                result_parts.append(f"L{i+1}: {line}")
+        
+        if tail_lines and tail_lines != head_lines:
+            result_parts.append(f"\n## Output (tail, {len(lines) - tail_count} lines omitted)\n")
+            result_parts.extend(tail_lines)
+        
+        result = "\n".join(result_parts)
+        if len(result) > max_chars:
+            result = result[:max_chars] + f"\n... (truncated)"
+        
+        return result
     
     async def execute(self, command: str, working_dir: str | None = None, confirm: bool = False, **kwargs: Any) -> str:
         cwd = working_dir or self.working_dir or os.getcwd()
@@ -106,12 +148,7 @@ class ExecTool(Tool):
             
             result = "\n".join(output_parts) if output_parts else "(no output)"
             
-            # Truncate very long output
-            max_len = 10000
-            if len(result) > max_len:
-                result = result[:max_len] + f"\n... (truncated, {len(result) - max_len} more chars)"
-            
-            return result
+            return self._smart_truncate(result, self.max_output_chars)
             
         except Exception as e:
             return f"Error executing command: {str(e)}"

@@ -47,17 +47,17 @@ class WebSearchTool(Tool):
     """Search the web using Brave Search API."""
     
     name = "web_search"
-    description = "Search the web. Returns titles, URLs, and snippets."
+    description = "Search web. Returns titles, URLs, snippets."
     parameters = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Search query"},
-            "count": {"type": "integer", "description": "Results (1-10)", "minimum": 1, "maximum": 10}
+            "count": {"type": "integer", "description": "Results (1-5)", "minimum": 1, "maximum": 5}
         },
         "required": ["query"]
     }
     
-    def __init__(self, api_key: str | None = None, max_results: int = 5):
+    def __init__(self, api_key: str | None = None, max_results: int = 3):
         self.api_key = api_key or os.environ.get("BRAVE_API_KEY", "")
         self.max_results = max_results
     
@@ -94,7 +94,7 @@ class WebFetchTool(Tool):
     """Fetch and extract content from a URL using Readability."""
     
     name = "web_fetch"
-    description = "Fetch URL and extract readable content (HTML → markdown/text)."
+    description = "Fetch URL, extract readable content."
     parameters = {
         "type": "object",
         "properties": {
@@ -105,7 +105,7 @@ class WebFetchTool(Tool):
         "required": ["url"]
     }
     
-    def __init__(self, max_chars: int = 50000):
+    def __init__(self, max_chars: int = 20000):
         self.max_chars = max_chars
     
     async def execute(self, url: str, extractMode: str = "markdown", maxChars: int | None = None, **kwargs: Any) -> str:
