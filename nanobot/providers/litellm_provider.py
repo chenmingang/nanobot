@@ -1,5 +1,6 @@
 """LiteLLM provider implementation for multi-provider support."""
 
+import asyncio
 import json
 import os
 from typing import Any
@@ -11,6 +12,50 @@ from loguru import logger
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 LOG_PREFIX = "[nanobot.llm]"
+
+# 重试配置
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 1.0
+RETRY_MAX_DELAY = 10.0
+
+# 可重试的错误类型
+RETRYABLE_ERRORS = (
+    "rate_limit",
+    "overloaded",
+    "timeout",
+    "connection",
+    "503",
+    "502",
+    "429",
+)
+
+
+def _is_retryable_error(error: Exception) -> bool:
+    """判断错误是否可重试。"""
+    error_str = str(error).lower()
+    return any(e in error_str for e in RETRYABLE_ERRORS)
+
+
+def _get_user_friendly_error(error: Exception) -> str:
+    """将技术错误转换为用户友好的提示。"""
+    error_str = str(error).lower()
+    
+    if "rate_limit" in error_str or "429" in error_str:
+        return "API 请求频率超限，请稍后重试"
+    if "overloaded" in error_str or "503" in error_str:
+        return "API 服务繁忙，请稍后重试"
+    if "timeout" in error_str:
+        return "API 请求超时，请稍后重试"
+    if "connection" in error_str or "502" in error_str:
+        return "网络连接问题，请检查网络后重试"
+    if "invalid_api_key" in error_str or "401" in error_str:
+        return "API Key 无效，请检查配置"
+    if "insufficient_quota" in error_str or "402" in error_str:
+        return "API 配额不足，请充值后重试"
+    if "model_not_found" in error_str or "404" in error_str:
+        return "模型不存在，请检查模型名称"
+    
+    return f"API 调用失败: {str(error)[:100]}"
 
 
 class LiteLLMProvider(LLMProvider):
@@ -177,17 +222,33 @@ class LiteLLMProvider(LLMProvider):
             kwargs["tool_choice"] = "auto"
         
         self._log_request(model=kwargs["model"], messages=messages, tools=tools)
-        try:
-            response = await acompletion(**kwargs)
-            parsed = self._parse_response(response)
-            self._log_response(parsed)
-            return parsed
-        except Exception as e:
-            # Return error as content for graceful handling
-            return LLMResponse(
-                content=f"Error calling LLM: {str(e)}",
-                finish_reason="error",
-            )
+        
+        last_error: Exception | None = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = await acompletion(**kwargs)
+                parsed = self._parse_response(response)
+                self._log_response(parsed)
+                return parsed
+            except Exception as e:
+                last_error = e
+                if _is_retryable_error(e) and attempt < MAX_RETRIES - 1:
+                    delay = min(RETRY_BASE_DELAY * (2 ** attempt), RETRY_MAX_DELAY)
+                    logger.warning(
+                        f"{LOG_PREFIX} retryable error on attempt {attempt + 1}/{MAX_RETRIES}: {e}. "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    break
+        
+        # 所有重试失败后，返回友好错误
+        user_error = _get_user_friendly_error(last_error) if last_error else "Unknown error"
+        logger.error(f"{LOG_PREFIX} all retries failed: {last_error}")
+        return LLMResponse(
+            content=user_error,
+            finish_reason="error",
+        )
     
     def _parse_response(self, response: Any) -> LLMResponse:
         """Parse LiteLLM response into our standard format."""

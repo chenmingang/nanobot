@@ -495,6 +495,12 @@ class AgentLoop:
                 temperature=self.temperature
             )
             
+            # Handle LLM error response
+            if response.finish_reason == "error":
+                logger.error(f"LLM error: {response.content}")
+                final_content = response.content or "抱歉，服务暂时不可用，请稍后重试。"
+                break
+            
             # Handle tool calls
             if response.has_tool_calls:
                 # 发送工具调用通知
@@ -625,6 +631,12 @@ class AgentLoop:
                 max_tokens=self.max_tokens,
                 temperature=self.temperature
             )
+            
+            # Handle LLM error response
+            if response.finish_reason == "error":
+                logger.error(f"LLM error (system message): {response.content}")
+                final_content = response.content or "后台任务执行失败，请稍后重试。"
+                break
             
             if response.has_tool_calls:
                 # 发送工具调用通知
