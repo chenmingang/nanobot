@@ -91,7 +91,8 @@ class AgentLoop:
         memory_search_enabled: bool = True,
         memory_search_local_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         memory_search_store_path: str | None = None,
-        brave_api_key: str | None = None
+        brave_api_key: str | None = None,
+        tool_timeout: float = 120.0
     ):
         self.bus = bus
         self.provider = provider
@@ -111,19 +112,20 @@ class AgentLoop:
         self.memory_search_local_model = memory_search_local_model
         self.memory_search_store_path = memory_search_store_path
         self.brave_api_key = brave_api_key
+        self.tool_timeout = tool_timeout
         
         self.context = ContextBuilder(workspace)
         self.sessions = SessionManager(workspace)
-        self.tools = ToolRegistry()
+        self.tools = ToolRegistry(default_timeout=tool_timeout)
         self.subagents = SubagentManager(
             provider=provider,
             workspace=workspace,
             bus=bus,
             model=self.model,
             brave_api_key=brave_api_key,
-            # Keep subagent usage cheaper than the main agent by default.
             max_tokens=self.max_tokens,
             temperature=self.temperature,
+            tool_timeout=tool_timeout,
         )
         
         self._running = False

@@ -35,6 +35,7 @@ class SubagentManager:
         brave_api_key: str | None = None,
         max_tokens: int = 2048,
         temperature: float = 0.7,
+        tool_timeout: float = 120.0,
     ):
         self.provider = provider
         self.workspace = workspace
@@ -43,6 +44,7 @@ class SubagentManager:
         self.brave_api_key = brave_api_key
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.tool_timeout = tool_timeout
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
     
     async def spawn(
@@ -96,7 +98,7 @@ class SubagentManager:
         
         try:
             # Build subagent tools (no message tool, no spawn tool)
-            tools = ToolRegistry()
+            tools = ToolRegistry(default_timeout=self.tool_timeout)
             tools.register(ReadFileTool())
             tools.register(WriteFileTool())
             tools.register(ListDirTool())
